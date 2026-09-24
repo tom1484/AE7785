@@ -1,3 +1,5 @@
+# Authors: Chu-Rong Chen, Xingyu Zhu
+
 from typing import Tuple, Optional
 
 import cv2
@@ -397,193 +399,134 @@ def detect_ball(
 
 
 class ObjectDetector:
-    def __init__(self, process_width: int = PROCESS_WIDTH):
+    """Ball detector that can run with or without OpenCV GUI windows."""
+
+    def __init__(
+        self,
+        process_width: int = PROCESS_WIDTH,
+        headless: bool = False,
+        h_low: int = 172,
+        h_high: int = 6,
+        s_min: int = 110,
+        v_min: int = 90,
+        v_max: int = 255,
+        min_orange_ratio: float = 0.30,
+        hough_p2: int = 32,
+        canny_low: int = 30,
+        canny_high: int = 90,
+    ):
         self.process_width = process_width
+        self.headless = headless
 
-    def create(self):
-        # self.cap = open_camera(self.camera_id)
-
-        # # Ask for decent camera resolution.
-        # # The camera may choose a different resolution.
-        # self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        # self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-
-        # ========================================================
-        # Live tuning controls
-        # ========================================================
+        # Used directly in headless mode and as GUI trackbar defaults.
+        self.h_low = h_low
+        self.h_high = h_high
+        self.s_min = s_min
+        self.v_min = v_min
+        self.v_max = v_max
+        self.min_orange_ratio = min_orange_ratio
+        self.hough_p2 = max(hough_p2, 1)
+        self.canny_low = max(canny_low, 1)
+        self.canny_high = max(canny_high, self.canny_low + 1)
 
         self.controls_window = "Detector Controls"
-        cv2.namedWindow(self.controls_window, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(self.controls_window, 600, 340)
-
-        # Ball samples (current camera):
-        #   RGB = (218, 100, 106) -> HSV = (178, 138, 218)
-        #   RGB = (140,  35,  36) -> HSV = (  0, 191, 140)
-        #   RGB = (139,  39,  39) -> HSV = (  0, 183, 139)
-        #   RGB = (214,  98, 109) -> HSV = (177, 138, 214)
-        #
-        # Hue straddles the 0/179 seam, so "H low" > "H high"
-        # here: detect_ball reads that as the wrapping range
-        # [172, 179] OR [0, 6].
-        #
-        # S spans 138..191 and V spans 139..218; the bounds below
-        # sit outside both with margin, while S min stays high
-        # enough to reject skin.
-        cv2.createTrackbar("H low", self.controls_window, 172, 179, nothing)
-        cv2.createTrackbar("H high", self.controls_window, 6, 179, nothing)
-        cv2.createTrackbar("S min", self.controls_window, 110, 255, nothing)
-        cv2.createTrackbar("V min", self.controls_window, 90, 255, nothing)
-        cv2.createTrackbar("V max", self.controls_window, 255, 255, nothing)
-
-        # 30 = circle only needs 30% orange
-        #
-        # Your patterned ball should normally have much more
-        # orange than this, but this tolerates the white pattern,
-        # shadows, and partial occlusion.
-        cv2.createTrackbar("Min orange %", self.controls_window, 30, 100, nothing)
-
-        # Lower value:
-        #     detects more circles
-        #     more false positives
-        #
-        # Higher value:
-        #     stricter circle detection
-        cv2.createTrackbar("Hough p2", self.controls_window, 32, 80, nothing)
-
-        # Canny thresholds for the edge image (panel 5) and for
-        # Hough's internal edge detection (see detect_ball step 8 --
-        # param1 is kept equal to "Canny high" so what you see in
-        # panel 5 is what Hough actually uses).
-        #
-        # gray is blurred with sigma=2 before this (step 6), which
-        # caps how strong an edge's gradient can get: a brightness
-        # step of size `diff` peaks at roughly `1.5 * diff` after
-        # that blur. So canny_high must stay below ~1.5x your
-        # smallest real edge contrast, or Canny finds no seed
-        # pixels and panel 5 goes black no matter how sharp the
-        # physical edge looks. Sample a lit patch and a shadowed/
-        # background patch next to a real edge, take their gray
-        # difference, and keep "Canny high" comfortably under 1.5x
-        # that number.
-        cv2.createTrackbar("Canny low", self.controls_window, 30, 300, nothing)
-        cv2.createTrackbar("Canny high", self.controls_window, 90, 300, nothing)
-
-        # ========================================================
-        # Detection-rate counter
-        #
-        # Tracks what fraction of processed frames produced a
-        # detection, so tuning changes can be judged quantitatively
-        # instead of just by eye.
-        # ========================================================
-
         self.total_frames = 0
         self.detected_frames = 0
+
+    def create(self) -> None:
+        self.reset_stats()
+        if self.headless:
+            return
+
+        cv2.namedWindow(self.controls_window, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(self.controls_window, 600, 340)
+        cv2.createTrackbar("H low", self.controls_window, self.h_low, 179, nothing)
+        cv2.createTrackbar("H high", self.controls_window, self.h_high, 179, nothing)
+        cv2.createTrackbar("S min", self.controls_window, self.s_min, 255, nothing)
+        cv2.createTrackbar("V min", self.controls_window, self.v_min, 255, nothing)
+        cv2.createTrackbar("V max", self.controls_window, self.v_max, 255, nothing)
+        cv2.createTrackbar(
+            "Min orange %",
+            self.controls_window,
+            round(self.min_orange_ratio * 100),
+            100,
+            nothing,
+        )
+        cv2.createTrackbar("Hough p2", self.controls_window, self.hough_p2, 80, nothing)
+        cv2.createTrackbar("Canny low", self.controls_window, self.canny_low, 300, nothing)
+        cv2.createTrackbar("Canny high", self.controls_window, self.canny_high, 300, nothing)
 
         print()
         print("Controls:")
         print("  q or ESC : quit")
         print("  r        : reset detection-rate counter")
         print()
-        print("If the Raw Camera panel is black,")
-        print("the problem is camera input, not image processing.")
-        print()
 
-    def reset_stats(self):
+    def reset_stats(self) -> None:
         self.total_frames = 0
         self.detected_frames = 0
 
-    def destroy(self):
-        cv2.destroyAllWindows()
+    def destroy(self) -> None:
+        if not self.headless:
+            cv2.destroyAllWindows()
+
+    def _parameters(self):
+        if self.headless:
+            return (
+                self.h_low,
+                self.h_high,
+                self.s_min,
+                self.v_min,
+                self.v_max,
+                self.min_orange_ratio,
+                self.hough_p2,
+                self.canny_low,
+                self.canny_high,
+            )
+
+        h_low = cv2.getTrackbarPos("H low", self.controls_window)
+        h_high = cv2.getTrackbarPos("H high", self.controls_window)
+        s_min = cv2.getTrackbarPos("S min", self.controls_window)
+        v_min = cv2.getTrackbarPos("V min", self.controls_window)
+        v_max = cv2.getTrackbarPos("V max", self.controls_window)
+        min_orange_ratio = (
+            cv2.getTrackbarPos("Min orange %", self.controls_window) / 100.0
+        )
+        hough_p2 = max(cv2.getTrackbarPos("Hough p2", self.controls_window), 1)
+        canny_low = max(cv2.getTrackbarPos("Canny low", self.controls_window), 1)
+        canny_high = max(
+            cv2.getTrackbarPos("Canny high", self.controls_window), canny_low + 1
+        )
+        return (
+            h_low,
+            h_high,
+            s_min,
+            v_min,
+            v_max,
+            min_orange_ratio,
+            hough_p2,
+            canny_low,
+            canny_high,
+        )
 
     def detect(self, frame: np.ndarray) -> Tuple[int, Optional[Tuple[int, int]]]:
-        try:
-            # ----------------------------------------------------
-            # Read live parameters
-            # ----------------------------------------------------
+        if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
+            raise ValueError("frame must be a non-empty NumPy array")
 
-            h_low = cv2.getTrackbarPos("H low", self.controls_window)
-            h_high = cv2.getTrackbarPos("H high", self.controls_window)
-            s_min = cv2.getTrackbarPos("S min", self.controls_window)
-            v_min = cv2.getTrackbarPos("V min", self.controls_window)
-            v_max = cv2.getTrackbarPos("V max", self.controls_window)
+        parameters = self._parameters()
+        detection, debug = detect_ball(
+            frame, *parameters, process_width=self.process_width
+        )
 
-            min_orange_ratio = (
-                cv2.getTrackbarPos("Min orange %", self.controls_window) / 100.0
-            )
+        self.total_frames += 1
+        if detection is not None:
+            self.detected_frames += 1
 
-            hough_p2 = cv2.getTrackbarPos("Hough p2", self.controls_window)
-
-            # Prevent invalid Hough threshold
-            hough_p2 = max(hough_p2, 1)
-
-            canny_low = cv2.getTrackbarPos("Canny low", self.controls_window)
-            canny_high = cv2.getTrackbarPos("Canny high", self.controls_window)
-
-            # Prevent invalid/degenerate Canny thresholds
-            canny_low = max(canny_low, 1)
-            canny_high = max(canny_high, canny_low + 1)
-
-            # ----------------------------------------------------
-            # Detect
-            # ----------------------------------------------------
-
-            detection, debug = detect_ball(
-                frame,
-                h_low,
-                h_high,
-                s_min,
-                v_min,
-                v_max,
-                min_orange_ratio,
-                hough_p2,
-                canny_low,
-                canny_high,
-                process_width=self.process_width,
-            )
-
-            # ----------------------------------------------------
-            # Update detection-rate counter
-            # ----------------------------------------------------
-
-            self.total_frames += 1
-            if detection is not None:
-                self.detected_frames += 1
-            detection_rate = (
-                100.0 * self.detected_frames / self.total_frames
-                if self.total_frames > 0
-                else 0.0
-            )
-
-            # ----------------------------------------------------
-            # Print ball position
-            # ----------------------------------------------------
-
-            if detection is not None:
-                x, y = detection["center"]
-                print(
-                    f"\rBall: "
-                    f"x={x:4d}, "
-                    f"y={y:4d}, "
-                    f"r={detection['radius']:6.1f}, "
-                    f"orange={detection['orange_ratio']:.2f}, "
-                    f"detected={detection_rate:5.1f}% ({self.detected_frames}/{self.total_frames})",
-                    end="",
-                )
-            else:
-                print(
-                    f"\rBall: not detected, "
-                    f"detected={detection_rate:5.1f}% ({self.detected_frames}/{self.total_frames})",
-                    end="",
-                )
-
-            # ----------------------------------------------------
-            # Debug dashboard
-            # ----------------------------------------------------
-
+        if not self.headless:
+            detection_rate = 100.0 * self.detected_frames / self.total_frames
             dashboard = create_debug_dashboard(debug)
             cv2.imshow("Ball Detector Debug", dashboard)
 
-            # Keep control window visible
             control_display = np.zeros((140, 600, 3), dtype=np.uint8)
             cv2.putText(
                 control_display,
@@ -603,7 +546,6 @@ class ObjectDetector:
                 (255, 255, 255),
                 1,
             )
-
             detection_color = (0, 255, 0) if detection is not None else (0, 165, 255)
             cv2.putText(
                 control_display,
@@ -615,21 +557,14 @@ class ObjectDetector:
                 detection_color,
                 1,
             )
-
             cv2.imshow(self.controls_window, control_display)
 
             key = cv2.waitKey(1) & 0xFF
-
             if key == ord("q") or key == 27:
                 return 1, None
-
             if key == ord("r"):
                 self.reset_stats()
 
-        except Exception as e:
-            raise e
-
         if detection is not None:
             return 0, detection["center"]
-        else:
-            return 0, None
+        return 0, None

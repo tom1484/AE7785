@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Authors: Chu-Rong Chen, Xingyu Zhu
 
 from typing import cast
 
@@ -24,7 +25,14 @@ class FindObject(Node):
         )
         self.pos_publisher = self.create_publisher(Point, "/detection", 10)
 
-        self.object_detector = ObjectDetector()
+        self.declare_parameter("headless", False)
+        self.headless = (
+            self.get_parameter("headless")
+            .get_parameter_value()
+            .bool_value
+        )
+
+        self.object_detector = ObjectDetector(headless=self.headless)
         self.object_detector.create()
 
         self.running = True
@@ -41,6 +49,12 @@ class FindObject(Node):
                 pos = Point()
                 pos.x = detection[0] / frame.shape[1]
                 pos.y = detection[1] / frame.shape[0]
+                pos.z = 0.0
+                self.pos_publisher.publish(pos)
+            else:
+                pos = Point()
+                pos.x = 0.5
+                pos.y = 0.5
                 pos.z = 0.0
                 self.pos_publisher.publish(pos)
         except Exception:
