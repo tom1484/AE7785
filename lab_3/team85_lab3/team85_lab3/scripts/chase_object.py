@@ -32,6 +32,8 @@ import math
 
 import rclpy
 from rclpy.node import Node
+from rclpy.executors import ExternalShutdownException
+from rclpy.signals import SignalHandlerOptions
 
 from geometry_msgs.msg import Point
 from geometry_msgs.msg import Twist
@@ -234,18 +236,20 @@ class ChaseObject(Node):
 
 
 def main(args=None):
-    rclpy.init(args=args)
-    node = ChaseObject()
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
+    node = None
 
     try:
+        node = ChaseObject()
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
-        node.stop_robot()
-        node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+        if node is not None:
+            if node.context.ok():
+                node.stop_robot()
+            node.destroy_node()
+        rclpy.try_shutdown()
 
 
 if __name__ == "__main__":
