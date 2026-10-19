@@ -1,0 +1,21 @@
+# Parameters for the nodes running on the robot (launch/robot.launch.py).
+#
+# debug.launch.py also reads the get_object_range section, so view_scan
+# visualizes the same segmentation and detection as the robot.
+#
+# Terminal logging is not set here; use the launch argument log:=true.
+#
+# Units: meters and radians. Write floats with a decimal point (e.g. 2.0),
+# otherwise ROS rejects them as integers.
+
+get_object_range:
+  ros__parameters:
+    # Scan segmentation (ScanSegmenter)
+    min_points: 5           # Minimum points per segment
+    base_threshold: 0.2    # Baseline gap between neighboring points (m)
+    k: 3.0                  # Adaptive threshold scaling factor
+
+    # Closest obstacle (ObstacleDetector)
+    field_of_view: 2.5      # Width centered on the front (rad)
+    normal_radius: 0.1      # Neighborhood used to fit the normal (m)
+    min_normal_points: 5    # Minimum points used to fit the normal
