@@ -11,7 +11,7 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
-        ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name, ['package.xml', 'wayPoints.txt']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
     ],
@@ -28,8 +28,12 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'get_object_range = team85_lab4.scripts.get_object_range:main',
+            'scan_processor = team85_lab4.scripts.scan_processor:main',
+            'obstacle_state = team85_lab4.scripts.obstacle_state:main',
+            'goal = team85_lab4.scripts.goal:main',
+            'go_to_goal = team85_lab4.scripts.go_to_goal:main',
             'view_scan = team85_lab4.scripts.view_scan:main',
+            'goal_monitor = team85_lab4.scripts.goal_monitor:main',
         ],
     },
 )

@@ -7,6 +7,7 @@
   <maintainer email="tomchen2003611@gmail.com">tom1484</maintainer>
   <license>Apache-2.0</license>
 
+  <exec_depend>team85_lab4_interfaces</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>python3-yaml</exec_depend>

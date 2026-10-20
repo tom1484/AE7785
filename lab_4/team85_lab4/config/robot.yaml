@@ -1,21 +1,38 @@
 # Parameters for the nodes running on the robot (launch/robot.launch.py).
 #
-# debug.launch.py also reads the get_object_range section, so view_scan
-# visualizes the same segmentation and detection as the robot.
-#
-# Terminal logging is not set here; use the launch argument log:=true.
+# Logging is not set here; use the launch argument verbose:=0|1|2.
 #
 # Units: meters and radians. Write floats with a decimal point (e.g. 2.0),
 # otherwise ROS rejects them as integers.
 
-get_object_range:
+scan_processor:
   ros__parameters:
     # Scan segmentation (ScanSegmenter)
     min_points: 5           # Minimum points per segment
-    base_threshold: 0.2    # Baseline gap between neighboring points (m)
+    base_threshold: 0.2     # Baseline gap between neighboring points (m)
     k: 3.0                  # Adaptive threshold scaling factor
 
     # Closest obstacle (ObstacleDetector)
     field_of_view: 2.5      # Width centered on the front (rad)
     normal_radius: 0.1      # Neighborhood used to fit the normal (m)
     min_normal_points: 5    # Minimum points used to fit the normal
+
+obstacle_state:
+  ros__parameters:
+    obstacle_timeout: 0.5   # Ignore obstacle readings older than this (s)
+    # TODO: Avoidance parameters.
+
+goal:
+  ros__parameters:
+    tolerance: 0.05         # A goal is reached within this distance (m)
+    hold_time: 3.0          # Stay within tolerance this long before switching (s)
+    # Waypoints file ("x y" world position per line). Defaults to the
+    # installed wayPoints.txt of this package.
+    # waypoints_file: /path/to/wayPoints.txt
+
+# NOTE: A ros__parameters block must contain at least one parameter, or the
+#       whole file fails to parse. Keep sections commented out until then.
+
+# go_to_goal:
+#   ros__parameters:
+#     # TODO: Controller parameters (gains, speed limits).

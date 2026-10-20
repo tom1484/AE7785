@@ -1,11 +1,15 @@
 # Parameters for the debug nodes running on the host (launch/debug.launch.py).
 #
-# view_scan also receives the segmentation and detection parameters of
-# get_object_range from robot.yaml; any of them set here overrides it.
-#
 # Units: meters and radians. Write floats with a decimal point.
 
 view_scan:
   ros__parameters:
     image_size: 800         # Window size (pixels)
     max_range: 3.5          # Distance drawn at the image border (m)
+    field_of_view: 2.5      # Display only: keep in sync with scan_processor (rad)
+
+goal_monitor:
+  ros__parameters:
+    image_size: 480         # Map size (pixels); the text panel is added on the right
+    margin: 0.5             # Space kept around waypoints and trajectory (m)
+    trajectory_step: 0.01   # Minimum distance between trajectory points (m)

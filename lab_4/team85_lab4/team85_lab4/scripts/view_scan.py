@@ -13,30 +13,38 @@ Node:
 Subscribes:
     /scan
       sensor_msgs/msg/LaserScan
+    /scan_segments
+      team85_lab4_interfaces/msg/ScanSegments
+    /obstacle_position
+      geometry_msgs/msg/PointStamped
+    /obstacle_normal
+      geometry_msgs/msg/Vector3Stamped
 
-Debug tool: draws the LiDAR points in a cv2 window, colored by segment.
-Points that belong to no segment are drawn in gray.
-The closest obstacle point in the field of view is circled in white, with its
-surface normal drawn as a white arrow (orange if the point is at a segment
-end, i.e. the normal was fitted from one side only).
+Debug tool: draws what scan_processor computes in a cv2 window. While
+/scan_segments arrives, only segmented points are drawn, colored by segment;
+otherwise the raw scan is drawn in gray. The obstacle point is circled in
+white, with its surface normal as a white arrow.
 Press 'q' / Esc, close the window, or Ctrl+C to quit.
 """
 
 import os
 import sys
+from typing import Optional
 
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from rclpy.qos import qos_profile_sensor_data
+from rclpy.time import Time
 
 from sensor_msgs.msg import LaserScan
+from geometry_msgs.msg import PointStamped, Vector3Stamped
+from team85_lab4_interfaces.msg import ScanSegments
 
 import cv2
 import numpy as np
 
-from team85_lab4.scan_segmentation import ScanSegmenter
-from team85_lab4.obstacle_detector import Obstacle, ObstacleDetector
+from team85_lab4.verbose_logger import VerboseLogger
 
 
 # Frame of the bot (identical to the LiDAR frame):
@@ -61,8 +69,8 @@ SEGMENT_COLORS = [
 UNSEGMENTED_COLOR = (90, 90, 90)
 FOV_COLOR = (0, 120, 120)
 OBSTACLE_COLOR = (255, 255, 255)
-ONE_SIDED_COLOR = (0, 165, 255)  # Obstacle point at a segment end
 NORMAL_LENGTH = 0.3  # Length of the drawn normal arrow, in meters
+SEGMENTS_TIMEOUT = 0.5  # Draw the raw scan when no segments arrived for this long (s)
 
 QUIT_KEYS = (ord("q"), 27)  # 'q' and Esc
 
@@ -74,24 +82,32 @@ class ViewScan(Node):
 
         self.image_size = int(self.declare_parameter("image_size", 800).value)
         self.max_range = float(self.declare_parameter("max_range", 3.5).value)
+        self.log = VerboseLogger(self)
 
-        self.segmenter = ScanSegmenter(
-            min_points=int(self.declare_parameter("min_points", 3).value),
-            base_threshold=float(self.declare_parameter("base_threshold", 0.05).value),
-            k=float(self.declare_parameter("k", 2.0).value),
-        )
-
-        self.detector = ObstacleDetector(
-            field_of_view=float(self.declare_parameter("field_of_view", 0.8 * np.pi).value),
-            normal_radius=float(self.declare_parameter("normal_radius", 0.1).value),
-            min_normal_points=int(self.declare_parameter("min_normal_points", 5).value),
-        )
+        # Display only: scan_processor's field of view, drawn as two lines
+        self.field_of_view = float(self.declare_parameter("field_of_view", 0.8 * np.pi).value)
 
         # Pixels per meter, so that max_range reaches the image border
         self.scale = (self.image_size / 2) / self.max_range
 
+        # Latest messages; drawn together on every update
+        self.scan: Optional[LaserScan] = None
+        self.segments: Optional[ScanSegments] = None
+        self.segments_received: Optional[Time] = None
+        self.obstacle_position: Optional[PointStamped] = None
+        self.obstacle_normal: Optional[Vector3Stamped] = None
+
         self.laser_subscription = self.create_subscription(
             LaserScan, "/scan", self.laser_callback, qos_profile_sensor_data
+        )
+        self.segments_subscription = self.create_subscription(
+            ScanSegments, "/scan_segments", self.segments_callback, 10
+        )
+        self.position_subscription = self.create_subscription(
+            PointStamped, "/obstacle_position", self.position_callback, 10
+        )
+        self.normal_subscription = self.create_subscription(
+            Vector3Stamped, "/obstacle_normal", self.normal_callback, 10
         )
 
         self.running = True
@@ -101,7 +117,7 @@ class ViewScan(Node):
         self.draw_background(self.image)
         cv2.namedWindow(WINDOW_NAME)
 
-        self.get_logger().info("Listening to scan...")
+        self.log.basic("Listening to scan...")
 
     def to_pixel(self, x: np.ndarray, y: np.ndarray):
         # Robot frame -> image frame: +x goes up (-row), +y goes left (-col)
@@ -122,8 +138,8 @@ class ViewScan(Node):
             )
 
         # Field of view boundaries
-        if self.detector.field_of_view < 2 * np.pi:
-            half = self.detector.field_of_view / 2
+        if self.field_of_view < 2 * np.pi:
+            half = self.field_of_view / 2
             for a in (-half, half):
                 cols, rows = self.to_pixel(
                     np.array([self.max_range * np.cos(a)]) * np.sqrt(2),
@@ -146,48 +162,77 @@ class ViewScan(Node):
         for col, row in zip(cols[inside], rows[inside]):
             cv2.circle(image, (int(col), int(row)), 2, color, -1)
 
-    def draw_obstacle(self, image: np.ndarray, obstacle: Obstacle):
-        start = obstacle.point
-        end = start + obstacle.normal * NORMAL_LENGTH
-        cols, rows = self.to_pixel(np.array([start[0], end[0]]), np.array([start[1], end[1]]))
+    def draw_obstacle(self, image: np.ndarray, position: np.ndarray, normal: np.ndarray):
+        end = position + normal * NORMAL_LENGTH
+        cols, rows = self.to_pixel(np.array([position[0], end[0]]), np.array([position[1], end[1]]))
 
-        color = ONE_SIDED_COLOR if obstacle.at_end else OBSTACLE_COLOR
-
-        cv2.circle(image, (int(cols[0]), int(rows[0])), 6, color, 1)
+        cv2.circle(image, (int(cols[0]), int(rows[0])), 6, OBSTACLE_COLOR, 1)
         cv2.arrowedLine(
             image, (int(cols[0]), int(rows[0])), (int(cols[1]), int(rows[1])),
-            color, 2, tipLength=0.2,
+            OBSTACLE_COLOR, 2, tipLength=0.2,
         )
         cv2.putText(
-            image, f"{obstacle.distance:.2f} m", (int(cols[0]) + 8, int(rows[0]) + 15),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1,
+            image, f"{np.linalg.norm(position):.2f} m", (int(cols[0]) + 8, int(rows[0]) + 15),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.45, OBSTACLE_COLOR, 1,
         )
 
     def laser_callback(self, scan: LaserScan):
-        ranges = np.array(scan.ranges, dtype=float)
-        angles = scan.angle_min + np.arange(ranges.shape[0]) * scan.angle_increment
+        self.scan = scan
+        self.render()
 
-        # Drop invalid returns
-        valid = np.isfinite(ranges) & (ranges >= scan.range_min) & (ranges <= scan.range_max)
-        ranges = ranges[valid]
-        angles = angles[valid]
+    def segments_callback(self, msg: ScanSegments):
+        self.segments = msg
+        self.segments_received = self.get_clock().now()
+        self.render()
 
-        # Polar -> Cartesian in the robot frame
-        x = ranges * np.cos(angles)
-        y = ranges * np.sin(angles)
+    def position_callback(self, msg: PointStamped):
+        self.obstacle_position = msg
+        self.render()
 
+    def normal_callback(self, msg: Vector3Stamped):
+        self.obstacle_normal = msg
+        self.render()
+
+    def segments_fresh(self) -> bool:
+        if self.segments_received is None:
+            return False
+        age = (self.get_clock().now() - self.segments_received).nanoseconds * 1e-9
+        return age <= SEGMENTS_TIMEOUT
+
+    def render(self):
         image = np.zeros((self.image_size, self.image_size, 3), dtype=np.uint8)
         self.draw_background(image)
 
-        self.draw_points(image, x, y, UNSEGMENTED_COLOR)
-        segments = self.segmenter.segment(scan)
-        for i, segment in enumerate(segments):
-            color = SEGMENT_COLORS[i % len(SEGMENT_COLORS)]
-            self.draw_points(image, segment.points[:, 0], segment.points[:, 1], color)
+        segmented = self.segments_fresh()
 
-        obstacle = self.detector.detect(segments)
-        if obstacle is not None:
-            self.draw_obstacle(image, obstacle)
+        # Raw scan in gray, only while scan_processor publishes no segments
+        if not segmented and self.scan is not None:
+            scan = self.scan
+            ranges = np.array(scan.ranges, dtype=float)
+            angles = scan.angle_min + np.arange(ranges.shape[0]) * scan.angle_increment
+            valid = np.isfinite(ranges) & (ranges >= scan.range_min) & (ranges <= scan.range_max)
+            x = ranges[valid] * np.cos(angles[valid])
+            y = ranges[valid] * np.sin(angles[valid])
+            self.draw_points(image, x, y, UNSEGMENTED_COLOR)
+
+        if segmented:
+            for i, segment in enumerate(self.segments.segments):
+                color = SEGMENT_COLORS[i % len(SEGMENT_COLORS)]
+                x = np.array([p.x for p in segment.points])
+                y = np.array([p.y for p in segment.points])
+                self.draw_points(image, x, y, color)
+
+            # Only draw an obstacle computed from the same scan as the segments,
+            # since nothing is published when no obstacle is in view
+            stamp = self.segments.header.stamp
+            position, normal = self.obstacle_position, self.obstacle_normal
+            if (position is not None and normal is not None
+                    and position.header.stamp == stamp and normal.header.stamp == stamp):
+                self.draw_obstacle(
+                    image,
+                    np.array([position.point.x, position.point.y]),
+                    np.array([normal.vector.x, normal.vector.y]),
+                )
 
         self.image = image
 
