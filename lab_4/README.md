@@ -27,22 +27,29 @@ The robot uses only odometry and the 2D LiDAR. Each scan is segmented to find th
 | `team85_lab4` | ament_python | Nodes, launch files, parameter files, waypoints |
 | `team85_lab4_interfaces` | ament_cmake | Custom messages (a Python package cannot define messages) |
 
+Both go in the `src/` directory of a colcon workspace.
+
 ```
-team85_lab4/
-├── config/
-│   ├── robot.yaml            # Robot node parameters (and shared ones)
-│   └── debug.yaml            # Debug node parameters
-├── launch/
-│   ├── robot.launch.py       # Nodes that run with the robot
-│   └── debug.launch.py       # Visualization windows (host only)
+lab_4/
+├── README.md
 ├── team85_lab4/
-│   ├── scan_segmentation.py  # ScanSegmenter
-│   ├── obstacle_detector.py  # ObstacleDetector
-│   ├── path_zone.py          # Path zone geometry, /goal_vector listener
-│   ├── verbose_logger.py     # Logging gated by the verbose parameter
-│   └── scripts/              # One file per node
-├── test/                     # Unit tests
-└── wayPoints.txt             # Waypoints, "x y" per line, in the world frame
+│   ├── config/
+│   │   ├── robot.yaml            # Robot node parameters (and shared ones)
+│   │   └── debug.yaml            # Debug node parameters
+│   ├── launch/
+│   │   ├── robot.launch.py       # Nodes that run with the robot
+│   │   └── debug.launch.py       # Visualization windows (host only)
+│   ├── team85_lab4/
+│   │   ├── scan_segmentation.py  # ScanSegmenter
+│   │   ├── obstacle_detector.py  # ObstacleDetector
+│   │   ├── path_zone.py          # Path zone geometry, /goal_vector listener
+│   │   ├── verbose_logger.py     # Logging gated by the verbose parameter
+│   │   └── scripts/              # One file per node
+│   ├── test/                     # Unit tests
+│   └── wayPoints.txt             # Waypoints, "x y" per line, in the world frame
+└── team85_lab4_interfaces/
+    └── msg/                      # ScanSegments, Segment, AvoidanceState,
+                                  # GoalStatus, VirtualTarget
 ```
 
 ---
