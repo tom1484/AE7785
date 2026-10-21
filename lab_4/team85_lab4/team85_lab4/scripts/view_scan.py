@@ -19,6 +19,9 @@ Subscribes:
       geometry_msgs/msg/PointStamped
     /obstacle_normal
       geometry_msgs/msg/Vector3Stamped
+    /goal_vector
+      geometry_msgs/msg/Vector3Stamped
+      Direction of the drawn path zone.
 
 Debug tool: draws what scan_processor computes in a cv2 window. While
 /scan_segments arrives, only segmented points are drawn, colored by segment;
@@ -44,6 +47,7 @@ from team85_lab4_interfaces.msg import ScanSegments
 import cv2
 import numpy as np
 
+from team85_lab4.path_zone import GoalDirectionListener
 from team85_lab4.verbose_logger import VerboseLogger
 
 
@@ -67,7 +71,7 @@ SEGMENT_COLORS = [
     (60, 245, 210), (212, 190, 250), (128, 128, 0), (40, 110, 170),
 ]
 UNSEGMENTED_COLOR = (90, 90, 90)
-FOV_COLOR = (0, 120, 120)
+ZONE_COLOR = (0, 120, 120)
 OBSTACLE_COLOR = (255, 255, 255)
 NORMAL_LENGTH = 0.3  # Length of the drawn normal arrow, in meters
 SEGMENTS_TIMEOUT = 0.5  # Draw the raw scan when no segments arrived for this long (s)
@@ -84,8 +88,12 @@ class ViewScan(Node):
         self.max_range = float(self.declare_parameter("max_range", 3.5).value)
         self.log = VerboseLogger(self)
 
-        # Display only: scan_processor's field of view, drawn as two lines
-        self.field_of_view = float(self.declare_parameter("field_of_view", 0.8 * np.pi).value)
+        # Display only: scan_processor's path zone, drawn as two lines along
+        # the goal direction; shared with the robot nodes through robot.yaml
+        self.path_radius = float(self.declare_parameter("path_radius", 0.2).value)
+        self.goal_direction = GoalDirectionListener(
+            self, timeout=float(self.declare_parameter("goal_vector_timeout", 0.5).value)
+        )
 
         # Pixels per meter, so that max_range reaches the image border
         self.scale = (self.image_size / 2) / self.max_range
@@ -137,15 +145,19 @@ class ViewScan(Node):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.35, (120, 120, 120), 1,
             )
 
-        # Field of view boundaries
-        if self.field_of_view < 2 * np.pi:
-            half = self.field_of_view / 2
-            for a in (-half, half):
-                cols, rows = self.to_pixel(
-                    np.array([self.max_range * np.cos(a)]) * np.sqrt(2),
-                    np.array([self.max_range * np.sin(a)]) * np.sqrt(2),
-                )
-                cv2.line(image, (c, c), (int(cols[0]), int(rows[0])), FOV_COLOR, 1)
+        # Path zone boundaries: path_radius either side of the line towards the
+        # goal, capped at the goal
+        direction, path_length = self.goal_direction.path()
+        side = np.array([-direction[1], direction[0]])
+        length = min(path_length, self.max_range * np.sqrt(2))
+        segments = [(side * offset, side * offset + direction * length)
+                    for offset in (-self.path_radius, self.path_radius)]
+        if np.isfinite(path_length):
+            end = direction * path_length
+            segments.append((end - side * self.path_radius, end + side * self.path_radius))
+        for start, end in segments:
+            cols, rows = self.to_pixel(np.array([start[0], end[0]]), np.array([start[1], end[1]]))
+            cv2.line(image, (int(cols[0]), int(rows[0])), (int(cols[1]), int(rows[1])), ZONE_COLOR, 1)
 
         # Axes: +x (red) up, +y (green) left
         axis_len = int(round(min(0.5, self.max_range) * self.scale))

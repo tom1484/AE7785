@@ -18,6 +18,10 @@ Publishes:
     /goal
       geometry_msgs/msg/PointStamped
       Current goal position in the odom frame.
+    /goal_vector
+      geometry_msgs/msg/Vector3Stamped
+      Vector from the robot to the current goal, in the robot frame
+      (x: forward, y: left). Not published once all goals are reached.
     /goal_status
       team85_lab4_interfaces/msg/GoalStatus
       World origin, waypoints, and progress on the current goal.
@@ -35,7 +39,7 @@ from rclpy.executors import ExternalShutdownException
 
 from ament_index_python.packages import get_package_share_directory
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Point, PointStamped
+from geometry_msgs.msg import Point, PointStamped, Vector3Stamped
 from team85_lab4_interfaces.msg import GoalStatus
 
 import numpy as np
@@ -76,10 +80,10 @@ class GoalState:
         robot: x: forward, y: left, rotating with the robot.
     """
 
-    def __init__(self, waypoints_file: str, tolerance: float = 0.03, hold_time: float = 3.0):
+    def __init__(self, waypoints_file: str, goal_tolerance: float = 0.03, hold_time: float = 3.0):
         self.goals_world = load_waypoints(waypoints_file)
         # A goal is reached within this distance (m)
-        self.tolerance = tolerance
+        self.goal_tolerance = goal_tolerance
         # The robot must stay at the goal this long before switching (s)
         self.hold_time = hold_time
         # Time the robot entered the current goal's tolerance, or None if outside
@@ -159,7 +163,7 @@ class GoalState:
 
     def should_switch(self, position: np.ndarray, time: float) -> bool:
         """Whether the robot has stayed within tolerance of the goal for hold_time."""
-        if self.distance_to_goal(position) > self.tolerance:
+        if self.distance_to_goal(position) > self.goal_tolerance:
             # Left the goal: restart the hold
             self.reached_since = None
             return False
@@ -178,16 +182,17 @@ class Goal(Node):
             get_package_share_directory("team85_lab4"), "wayPoints.txt"
         )
         waypoints_file = str(self.declare_parameter("waypoints_file", default_waypoints).value)
-        tolerance = float(self.declare_parameter("tolerance", 0.03).value)
+        goal_tolerance = float(self.declare_parameter("goal_tolerance", 0.03).value)
         hold_time = float(self.declare_parameter("hold_time", 3.0).value)
         self.log = VerboseLogger(self)
 
-        self.goal_state = GoalState(waypoints_file, tolerance, hold_time)
+        self.goal_state = GoalState(waypoints_file, goal_tolerance, hold_time)
 
         self.odom_subscription = self.create_subscription(
             Odometry, "/odom", self.odom_callback, 10
         )
         self.goal_publisher = self.create_publisher(PointStamped, "/goal", 10)
+        self.goal_vector_publisher = self.create_publisher(Vector3Stamped, "/goal_vector", 10)
         self.status_publisher = self.create_publisher(GoalStatus, "/goal_status", 10)
 
         self.log.basic(
@@ -206,7 +211,7 @@ class Goal(Node):
         previous_index = state.goal_index
 
         now = self.get_clock().now().nanoseconds * 1e-9
-        state.update(position, yaw, now)
+        goal_vector = state.update(position, yaw, now)
         self.log_stage_changes(origin_was_set, previous_index, position, yaw)
         self.publish_status(odom, position, now)
 
@@ -219,6 +224,12 @@ class Goal(Node):
         goal.header = odom.header
         goal.point.x, goal.point.y = (float(v) for v in state.current_goal)
         self.goal_publisher.publish(goal)
+
+        vector = Vector3Stamped()
+        vector.header.stamp = odom.header.stamp
+        vector.header.frame_id = odom.child_frame_id
+        vector.vector.x, vector.vector.y = (float(v) for v in goal_vector)
+        self.goal_vector_publisher.publish(vector)
 
         self.log.continuous(
             f"goal {state.goal_index + 1}/{state.num_goals} "
@@ -241,7 +252,7 @@ class Goal(Node):
         status.goal_index = state.goal_index
         status.finished = state.finished
         status.distance = state.distance_to_goal(position) or 0.0
-        status.tolerance = state.tolerance
+        status.goal_tolerance = state.goal_tolerance
         status.hold_elapsed = 0.0 if state.reached_since is None else now - state.reached_since
         status.hold_time = state.hold_time
         self.status_publisher.publish(status)

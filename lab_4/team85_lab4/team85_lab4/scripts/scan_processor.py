@@ -13,6 +13,9 @@ Node:
 Subscribes:
     /scan
       sensor_msgs/msg/LaserScan
+    /goal_vector
+      geometry_msgs/msg/Vector3Stamped
+      Direction of the path zone; the robot's heading without a recent one.
 
 Publishes:
     /scan_segments
@@ -20,7 +23,8 @@ Publishes:
       Segmented scan; points not in any segment are treated as noise.
     /obstacle_position
       geometry_msgs/msg/PointStamped
-      Closest segment point within the field of view.
+      Closest segment point within the path zone: ahead along the goal
+      direction and short of the goal, within path_radius of the line to it.
     /obstacle_normal
       geometry_msgs/msg/Vector3Stamped
       Unit surface normal at that point, pointing towards the robot.
@@ -43,6 +47,7 @@ import numpy as np
 
 from team85_lab4.scan_segmentation import ScanSegmenter
 from team85_lab4.obstacle_detector import ObstacleDetector
+from team85_lab4.path_zone import GoalDirectionListener
 from team85_lab4.verbose_logger import VerboseLogger
 
 
@@ -57,9 +62,12 @@ class ScanProcessor(Node):
             k=float(self.declare_parameter("k", 2.0).value),
         )
         self.detector = ObstacleDetector(
-            field_of_view=float(self.declare_parameter("field_of_view", 2.0).value),
+            path_radius=float(self.declare_parameter("path_radius", 0.2).value),
             normal_radius=float(self.declare_parameter("normal_radius", 0.1).value),
             min_normal_points=int(self.declare_parameter("min_normal_points", 5).value),
+        )
+        self.goal_direction = GoalDirectionListener(
+            self, timeout=float(self.declare_parameter("goal_vector_timeout", 0.5).value)
         )
         self.log = VerboseLogger(self)
 
@@ -84,7 +92,7 @@ class ScanProcessor(Node):
             segments_msg.segments.append(segment_msg)
         self.segments_publisher.publish(segments_msg)
 
-        obstacle = self.detector.detect(segments)
+        obstacle = self.detector.detect(segments, *self.goal_direction.path())
         if obstacle is None:
             return
 

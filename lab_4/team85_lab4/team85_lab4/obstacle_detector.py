@@ -3,6 +3,7 @@ from typing import List, Optional
 
 import numpy as np
 
+from team85_lab4.path_zone import HEADING, in_path_zone
 from team85_lab4.scan_segmentation import Segment
 
 
@@ -31,12 +32,17 @@ class Obstacle:
 
 class ObstacleDetector:
     """
-    Find the closest point of all segments within the field of view, and
+    Find the closest point of all segments within the path zone, and
     approximate the surface normal there.
+
+    The path zone is the strip ahead along the path direction (towards the
+    goal; the robot's heading by default), within path_radius of the path
+    line through the robot, and short of the goal (path_length): what the
+    robot would hit on its way to the goal.
 
     The normal is the direction of least variance (PCA) of the segment's
     points within normal_radius of the closest point, using at least
-    min_normal_points points. Neighbors outside the field of view are still
+    min_normal_points points. Neighbors outside the path zone are still
     used, since they describe the same surface.
 
     If the closest point is at an end of its segment (e.g. a surface split by
@@ -44,33 +50,44 @@ class ObstacleDetector:
     takes them all from that side, which still gives the surface direction.
     """
 
-    def __init__(self, field_of_view=2 * np.pi, normal_radius=0.1, min_normal_points=5):
+    def __init__(self, path_radius=np.inf, normal_radius=0.1, min_normal_points=5):
         """
         Args:
-            field_of_view: Angular width (radians) centered on the front (+x).
-                           Points with angles outside [-FOV/2, FOV/2] are ignored.
+            path_radius: Half width (meters) of the path zone. Points behind the
+                         robot along the path, or farther than this from the
+                         path line, are ignored.
             normal_radius: Radius (meters) of the neighborhood used to fit the normal.
             min_normal_points: Minimum points (including the closest point) used
                                to fit the normal, taken along the segment when
                                normal_radius holds too few, e.g. far away or at
                                a segment end.
         """
-        self.field_of_view = field_of_view
+        self.path_radius = path_radius
         self.normal_radius = normal_radius
         self.min_normal_points = min_normal_points
 
-    def detect(self, segments: List[Segment]) -> Optional[Obstacle]:
+    def detect(
+        self,
+        segments: List[Segment],
+        direction: np.ndarray = HEADING,
+        path_length: float = np.inf,
+    ) -> Optional[Obstacle]:
         """
+        Args:
+            segments: Segments of the scan.
+            direction: Unit path direction in the scan frame.
+            path_length: Length of the path zone along direction (the goal distance).
+
         Returns:
-            The closest obstacle, or None if no segment point is in the field of view.
+            The closest obstacle, or None if no segment point is in the path zone.
         """
         best = None
         for segment in segments:
-            in_view = self.in_field_of_view(segment.angles)
-            if not in_view.any():
+            in_zone = in_path_zone(segment.points, direction, self.path_radius, path_length)
+            if not in_zone.any():
                 continue
 
-            ranges = np.where(in_view, segment.ranges, np.inf)
+            ranges = np.where(in_zone, segment.ranges, np.inf)
             index = int(np.argmin(ranges))
             if best is None or ranges[index] < best[0]:
                 best = (ranges[index], segment, index)
@@ -88,14 +105,6 @@ class ObstacleDetector:
             index=index,
             at_end=index in (0, len(segment) - 1),
         )
-
-    def in_field_of_view(self, angles: np.ndarray) -> np.ndarray:
-        if self.field_of_view >= 2 * np.pi:
-            return np.ones(angles.shape, dtype=bool)
-
-        # Wrap to [-pi, pi) so 0 is the front
-        wrapped = (angles + np.pi) % (2 * np.pi) - np.pi
-        return np.abs(wrapped) <= self.field_of_view / 2
 
     def estimate_normal(self, points: np.ndarray, index: int) -> np.ndarray:
         point = points[index]

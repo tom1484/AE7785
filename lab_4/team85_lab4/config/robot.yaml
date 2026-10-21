@@ -5,6 +5,21 @@
 # Units: meters and radians. Write floats with a decimal point (e.g. 2.0),
 # otherwise ROS rejects them as integers.
 
+# Shared by all nodes (also loaded by debug.launch.py for view_scan)
+/**:
+  ros__parameters:
+    # Half width of the robot's path: the strip from the robot to the goal
+    # (ahead along the goal direction and short of the goal, within
+    # path_radius of the line to it) where scan_processor looks for obstacles
+    # and obstacle_state avoids them. Should be larger than the robot radius.
+    path_radius: 0.5        # (m)
+    # The path direction comes from /goal_vector (goal node); without one
+    # newer than this, the robot's heading is used instead.
+    goal_vector_timeout: 0.5  # (s)
+    # A goal is reached within this distance: goal starts its hold timer, and
+    # go_to_goal's planner zeroes the virtual target.
+    goal_tolerance: 0.02    # (m)
+
 scan_processor:
   ros__parameters:
     # Scan segmentation (ScanSegmenter)
@@ -13,26 +28,72 @@ scan_processor:
     k: 3.0                  # Adaptive threshold scaling factor
 
     # Closest obstacle (ObstacleDetector)
-    field_of_view: 2.5      # Width centered on the front (rad)
     normal_radius: 0.1      # Neighborhood used to fit the normal (m)
     min_normal_points: 5    # Minimum points used to fit the normal
 
 obstacle_state:
   ros__parameters:
     obstacle_timeout: 0.5   # Ignore obstacle readings older than this (s)
-    # TODO: Avoidance parameters.
+    # Avoid while the obstacle is closer than avoid_distance AND within the
+    # path zone (path_radius, shared above). Since |y| <= distance, the zone
+    # only matters while path_radius is smaller than avoid_distance.
+    avoid_distance: 0.4     # (m)
+    # Wall normal the wall vector is built from, also used by go_to_goal for
+    # the wall-following side (sigma): "fitted" (surface normal from
+    # scan_processor) or "radial" (direction from the obstacle to the robot).
+    wall_normal: radial
 
 goal:
   ros__parameters:
-    tolerance: 0.05         # A goal is reached within this distance (m)
     hold_time: 3.0          # Stay within tolerance this long before switching (s)
     # Waypoints file ("x y" world position per line). Defaults to the
     # installed wayPoints.txt of this package.
     # waypoints_file: /path/to/wayPoints.txt
 
-# NOTE: A ros__parameters block must contain at least one parameter, or the
-#       whole file fails to parse. Keep sections commented out until then.
+# Virtual target planner and low-level controller (README.md). Initial
+# guesses, not tuned yet.
+go_to_goal:
+  ros__parameters:
+    input_timeout: 0.5          # Zero the target when an input is older (s)
 
-# go_to_goal:
-#   ros__parameters:
-#     # TODO: Controller parameters (gains, speed limits).
+    # Heading: GTG + FW
+    k_gtg_theta: 2.0            # GTG heading gain
+    k_fw: 0.5                   # FW steering gain
+    s_fw: 1.0                   # FW exponential sensitivity
+    # FW steering scale exp(-s_fw_distance * max(0, d - l_d)): full within the
+    # danger distance l_d, weaker farther away (0 disables the scaling)
+    s_fw_distance: 10.0         # (1/m)
+    delta: 0.3                  # GTG recovery width after wall alignment (rad), in (0, pi)
+
+    # Distance: GTG + AO + FW
+    k_gtg_distance: 2.5         # GTG distance gain (1/m)
+    # Minimum GTG attraction, so the robot keeps moving near the goal (0
+    # disables): gives distance_vt = distance_scale * atan(u_gtg_min) there
+    u_gtg_min: 0.4
+    u_gtg_max: 1.0              # Maximum GTG attraction
+    u_ao_max: 1.5               # Maximum AO repulsion
+    s_ao: 5.0                   # AO decay rate (1/m)
+    l_d: 0.25                    # Danger distance, robot center to surface (m); below avoid_distance
+    u_fw_distance: 1.5          # Constant FW drive along the wall (0 disables)
+    distance_scale: 0.5         # Arctangent distance scaling (m)
+    max_reference_distance: 0.5 # Maximum virtual distance (m)
+    # false: signed distance in [-max, max]; negative means back up (the
+    # low-level controller must use it as a signed longitudinal reference).
+    # true: clamp negative distances to 0.
+    forward_only: false
+
+    # Numerical safeguards
+    geometry_epsilon: 0.000001  # Minimum valid geometry norm
+    min_tangent_cross: 0.2      # Minimum |tangent x normal|, in (0, 1)
+    max_fw_exponent: 20.0       # FW exponential overflow guard
+
+    # Low-level P controller: v = kp_linear * distance_vt, w = kp_angular * theta_vt
+    kp_linear: 0.6              # (1/s)
+    kp_angular: 1.0             # (1/s)
+    # Keep distance_deadband well below what distance_vt is at the goal
+    # tolerance (distance_scale * atan(k_gtg_distance * goal_tolerance)), or the
+    # robot stops short of the goal.
+    distance_deadband: 0.005    # (m)
+    angle_deadband: 0.05        # (rad)
+    max_linear_speed: 0.15      # (m/s); TurtleBot3 Burger max 0.22
+    max_angular_speed: 0.8      # (rad/s); TurtleBot3 Burger max 2.84

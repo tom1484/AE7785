@@ -16,6 +16,6 @@ bool finished
 
 # Progress on the current goal
 float64 distance      # Distance to the current goal (m), 0 once finished
-float64 tolerance     # A goal is reached within this distance (m)
+float64 goal_tolerance  # A goal is reached within this distance (m)
 float64 hold_elapsed  # Time spent within tolerance so far (s)
 float64 hold_time     # Time required within tolerance before switching (s)

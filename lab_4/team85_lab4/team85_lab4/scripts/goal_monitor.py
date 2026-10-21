@@ -218,7 +218,7 @@ class GoalMonitor(Node):
         path = self.to_pixel(np.vstack([np.zeros((1, 2)), goals]))
         cv2.polylines(image, [path], False, PATH_COLOR, 1)
 
-        tolerance_px = max(int(round(status.tolerance * self.scale)), 3)
+        tolerance_px = max(int(round(status.goal_tolerance * self.scale)), 3)
         for i, pixel in enumerate(path[1:]):
             if i < status.goal_index:
                 color = REACHED_COLOR
@@ -257,7 +257,7 @@ class GoalMonitor(Node):
                 (f"Goal {status.goal_index + 1}/{len(goals)}", CURRENT_COLOR),
                 (f"  at ({goal[0]:.2f}, {goal[1]:.2f})", TEXT_COLOR),
                 (f"  distance {status.distance:.3f} m", TEXT_COLOR),
-                (f"  tolerance {status.tolerance:.3f} m", TEXT_COLOR),
+                (f"  tolerance {status.goal_tolerance:.3f} m", TEXT_COLOR),
                 (f"  hold {status.hold_elapsed:.1f} / {status.hold_time:.1f} s"
                  if holding else "  not at goal", CURRENT_COLOR if holding else TEXT_COLOR),
             ]

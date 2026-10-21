@@ -11,6 +11,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ScanSegments.msg"
   "msg/AvoidanceState.msg"
   "msg/GoalStatus.msg"
+  "msg/VirtualTarget.msg"
   DEPENDENCIES std_msgs geometry_msgs
 )
 
