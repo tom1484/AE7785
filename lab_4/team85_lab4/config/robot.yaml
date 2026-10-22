@@ -57,8 +57,8 @@ go_to_goal:
 
     # Heading: GTG + FW
     k_gtg_theta: 2.0            # GTG heading gain
-    k_fw: 0.5                   # FW steering gain
-    s_fw: 1.0                   # FW exponential sensitivity
+    k_fw: 0.25                   # FW steering gain
+    s_fw: 2.0                   # FW exponential sensitivity
     # FW steering scale exp(-s_fw_distance * max(0, d - l_d)): full within the
     # danger distance l_d, weaker farther away (0 disables the scaling)
     s_fw_distance: 10.0         # (1/m)
@@ -79,7 +79,7 @@ go_to_goal:
     # false: signed distance in [-max, max]; negative means back up (the
     # low-level controller must use it as a signed longitudinal reference).
     # true: clamp negative distances to 0.
-    forward_only: false
+    forward_only: true
 
     # Numerical safeguards
     geometry_epsilon: 0.000001  # Minimum valid geometry norm
@@ -91,8 +91,8 @@ go_to_goal:
 low_level_controller:
   ros__parameters:
     target_timeout: 0.5         # Stop when no virtual target arrived for this long (s)
-    kp_linear: 0.6              # (1/s)
-    kp_angular: 1.0             # (1/s)
+    kp_linear: 0.5              # (1/s)
+    kp_angular: 0.8             # (1/s)
     # Keep distance_deadband well below what distance_vt is at the goal
     # tolerance (distance_scale * atan(k_gtg_distance * goal_tolerance)), or the
     # robot stops short of the goal.
