@@ -118,11 +118,11 @@ ros2 launch team85_lab4 debug.launch.py
 |---|---|---|---|
 | `scan_processor` | `/scan`, `/goal_vector` | `/scan_segments`, `/obstacle_position`, `/obstacle_normal` | Segments each scan; finds the closest point in the path zone and its surface normal |
 | `obstacle_state` | `/obstacle_position`, `/obstacle_normal`, `/goal_vector` | `/avoidance_state` | Avoidance state machine and wall-following vector (20 Hz) |
-| `goal` | `/odom` | `/goal`, `/goal_vector`, `/goal_status` | Defines the world frame, tracks and switches goals |
+| `goal` | `/odom` | `/goal`, `/goal_vector`, `/goal_status` | Defines the world frame, tracks and switches goals; serves `/reset_goals` |
 | `go_to_goal` | `/odom`, `/goal`, `/goal_status`, `/avoidance_state`, `/pause` | `/virtual_target` | Virtual target planner (20 Hz) |
 | `low_level_controller` | `/virtual_target` | `/cmd_vel` | P controller, run on each virtual target |
 | `view_scan` | `/scan`, `/scan_segments`, `/obstacle_*`, `/goal_vector` | | Debug: scan, segments, obstacle |
-| `goal_monitor` | `/odom`, `/goal_status` | | Debug: map, trajectory, goal progress |
+| `goal_monitor` | `/odom`, `/goal_status` | | Debug: map, trajectory, goal progress; `c` calls `/reset_goals` |
 | `avoidance_monitor` | `/avoidance_state`, `/virtual_target`, `/scan_segments`, `/pause` | `/pause` | Debug: avoidance criteria and virtual target; space pauses / resumes |
 
 `scan_processor` publishes nothing on the obstacle topics when no obstacle is in the path zone. `obstacle_state` and `go_to_goal` treat inputs older than their timeouts as missing, and `low_level_controller` stops the robot when no virtual target arrives within `target_timeout`.
@@ -139,6 +139,7 @@ ros2 launch team85_lab4 debug.launch.py
 | `/goal_status` | `GoalStatus` | Odom / world | World origin, waypoints, goal index, finished flag, distance, hold progress |
 | `/avoidance_state` | `AvoidanceState` | Robot | Avoiding flag, wall vector and side, obstacle and normal used, path zone, thresholds |
 | `/virtual_target` | `VirtualTarget` | Robot | $\theta_{\mathrm{VT}}$, $d_{\mathrm{VT}}$, status, planner diagnostics |
+| `/reset_goals` | `std_srvs/Trigger` (service) | | Back to goal 1, with the world origin set again from the next odometry |
 | `/pause` | `std_msgs/Bool` | | `true` pauses `go_to_goal`, `false` resumes it. Transient local, so a restarted `go_to_goal` gets the last value |
 | `/cmd_vel` | `geometry_msgs/Twist` | Robot | Velocity command |
 
@@ -177,7 +178,7 @@ with $r_{\mathrm{path}}$ = `path_radius`. The zone is the strip from the robot t
 
 ### 2. Goals
 
-`goal` reads `wayPoints.txt` (world frame). The first odometry pose $(\mathbf p_0,\psi_0)$ defines the world frame: $x$ forward and $y$ left of the robot at start. Each waypoint $\mathbf w_i$ is converted once into the odom frame:
+`goal` reads `wayPoints.txt` (world frame). The first odometry pose $(\mathbf p_0,\psi_0)$ defines the world frame: $x$ forward and $y$ left of the robot at start. Calling `/reset_goals` (`c` in `goal_monitor`) returns to the first goal and takes the next odometry pose as the new $(\mathbf p_0,\psi_0)$, so the waypoints are laid out again from where the robot stands. Each waypoint $\mathbf w_i$ is converted once into the odom frame:
 
 $$
 \mathbf w_i^{\mathrm{odom}}=R(\psi_0)\,\mathbf w_i+\mathbf p_0
@@ -394,7 +395,7 @@ Planner symbols:
 | Window | Shows |
 |---|---|
 | `view_scan` | LiDAR scan around the robot (up: $+x$). Shows segments in color while `/scan_segments` arrives, otherwise the raw scan in gray. Also draws the path zone, the obstacle point, and its normal. |
-| `goal_monitor` | World-frame map: waypoints (green: reached, yellow: current, gray: upcoming) with tolerance circles, the trajectory (`c` clears it), the robot, and the goal vector. The panel shows the goal index, distance, hold timer, robot pose, and goal vector. |
+| `goal_monitor` | World-frame map: waypoints (green: reached, yellow: current, gray: upcoming) with tolerance circles, the trajectory, the robot, and the goal vector. The panel shows the goal index, distance, hold timer, robot pose, and goal vector. `c` clears the trajectory and calls `/reset_goals`: back to goal 1, with the world origin moved to the robot's current pose (e.g. after carrying the robot back to the start). |
 | `avoidance_monitor` | Robot-frame view: path zone and avoid distance, obstacle and normal (white), wall direction (magenta), and virtual target (cyan: heading ray, plus the signed distance as a point on the robot's $x$ axis). The panel shows the state, each criterion against its threshold, and the planner diagnostics. Space toggles `/pause`: the robot stops (status `PAUSED`) until space is pressed again. |
 
 ### Offline tuning: `tune_planner`
@@ -494,5 +495,5 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest test/test_virtual_target.py t
 
 - **One `/cmd_vel` publisher.** `low_level_controller` publishes `/cmd_vel` continuously while `go_to_goal` runs. Stop `teleop_keyboard` before running: it also publishes every 0.1 s, even without key presses, and the robot then follows whichever command arrived last.
 - **Restart after changes.** Running nodes keep the code and parameters they started with.
-- **Separate robots.** Use a distinct `ROS_DOMAIN_ID` per robot and host pair. `goal` takes its world origin from the first `/odom` it receives.
+- **Separate robots.** Use a distinct `ROS_DOMAIN_ID` per robot and host pair. `goal` takes its world origin from the first `/odom` it receives (or the first after `/reset_goals`).
 - **Logging.** Warnings and errors always print; `verbose` only gates info messages.

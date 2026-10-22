@@ -16,10 +16,17 @@ Subscribes:
     /goal_status
       team85_lab4_interfaces/msg/GoalStatus
 
+Calls:
+    /reset_goals
+      std_srvs/srv/Trigger
+      On 'c': the goal node goes back to the first goal and sets the world
+      origin at the robot's current pose.
+
 Debug tool: draws the waypoints, the traversed trajectory, and the goal vector
 in the world frame (set by the goal node), with a panel showing the goal state
 and the robot pose. The view zooms out to keep everything in sight.
-Press 'c' to clear the trajectory; 'q' / Esc, close the window, or Ctrl+C to quit.
+Press 'c' to clear the trajectory and reset the goals (see /reset_goals);
+'q' / Esc, close the window, or Ctrl+C to quit.
 """
 
 import os
@@ -31,6 +38,7 @@ from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 
 from nav_msgs.msg import Odometry
+from std_srvs.srv import Trigger
 from team85_lab4_interfaces.msg import GoalStatus
 
 import cv2
@@ -106,6 +114,7 @@ class GoalMonitor(Node):
         self.status_subscription = self.create_subscription(
             GoalStatus, "/goal_status", self.status_callback, 10
         )
+        self.reset_client = self.create_client(Trigger, "/reset_goals")
 
         self.running = True
         cv2.namedWindow(WINDOW_NAME)
@@ -285,10 +294,27 @@ class GoalMonitor(Node):
         else:
             lines.append(("Waiting for /odom...", TEXT_COLOR))
 
-        lines += [("", TEXT_COLOR), ("c: clear trail   q: quit", UPCOMING_COLOR)]
+        lines += [("", TEXT_COLOR), ("c: reset   q: quit", UPCOMING_COLOR)]
         for i, (text, color) in enumerate(lines):
             cv2.putText(panel, text, (10, 22 + LINE_HEIGHT * i), cv2.FONT_HERSHEY_SIMPLEX,
                         FONT_SCALE, color, 1)
+
+    def reset(self):
+        # The world origin moves to the robot, so the old trail is meaningless
+        self.trajectory = self.trajectory[-1:]
+        if not self.reset_client.service_is_ready():
+            self.get_logger().warning("/reset_goals not available; is the goal node running?")
+            return
+        # Asynchronous, so the window keeps responding while waiting
+        future = self.reset_client.call_async(Trigger.Request())
+        future.add_done_callback(self.reset_done)
+
+    def reset_done(self, future):
+        response = future.result()
+        if response is not None and response.success:
+            self.log.basic(f"Reset: {response.message}")
+        else:
+            self.get_logger().warning("Goal reset failed")
 
     def update_window(self):
         # Runs in the main loop, so the window keeps responding to keys and the
@@ -296,7 +322,7 @@ class GoalMonitor(Node):
         cv2.imshow(WINDOW_NAME, self.render())
         key = cv2.waitKey(1) & 0xFF
         if key == CLEAR_KEY:
-            self.trajectory = self.trajectory[-1:]
+            self.reset()
         closed = cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1
         if key in QUIT_KEYS or closed:
             self.running = False

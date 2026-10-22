@@ -26,6 +26,12 @@ Publishes:
       team85_lab4_interfaces/msg/GoalStatus
       World origin, waypoints, and progress on the current goal.
 
+Services:
+    /reset_goals
+      std_srvs/srv/Trigger
+      Back to the first goal, with the world frame set again from the next
+      odometry reading (the robot's pose then becomes the world origin).
+
 Reads the waypoints and runs GoalState on every odometry reading: the first
 reading defines the world frame, and the stage advances as goals are reached.
 """
@@ -39,6 +45,7 @@ from rclpy.executors import ExternalShutdownException
 
 from ament_index_python.packages import get_package_share_directory
 from nav_msgs.msg import Odometry
+from std_srvs.srv import Trigger
 from geometry_msgs.msg import Point, PointStamped, Vector3Stamped
 from team85_lab4_interfaces.msg import GoalStatus
 
@@ -150,6 +157,14 @@ class GoalState:
         # Undo the robot's current heading
         return rotation(yaw).T @ goal_vector
 
+    def reset(self):
+        """Back to the first goal; the next update() sets the world origin again."""
+        self.goals_odom = None
+        self.origin_position = None
+        self.origin_yaw = None
+        self.goal_index = 0
+        self.reached_since = None
+
     def set_world_origin(self, position: np.ndarray, yaw: float):
         self.origin_position, self.origin_yaw = position, yaw
         # world -> odom: rotate by the starting yaw, then shift by the starting position
@@ -194,12 +209,20 @@ class Goal(Node):
         self.goal_publisher = self.create_publisher(PointStamped, "/goal", 10)
         self.goal_vector_publisher = self.create_publisher(Vector3Stamped, "/goal_vector", 10)
         self.status_publisher = self.create_publisher(GoalStatus, "/goal_status", 10)
+        self.reset_service = self.create_service(Trigger, "/reset_goals", self.reset_callback)
 
         self.log.basic(
             f"Loaded {self.goal_state.num_goals} waypoints from {waypoints_file}: "
             f"{self.goal_state.goals_world.tolist()}"
         )
         self.log.basic("Waiting for the first odometry to set the world origin...")
+
+    def reset_callback(self, request: Trigger.Request, response: Trigger.Response):
+        self.goal_state.reset()
+        self.log.basic("Goals reset: waiting for the next odometry to set the world origin...")
+        response.success = True
+        response.message = "Back to goal 1; the world origin is set from the next odometry"
+        return response
 
     def odom_callback(self, odom: Odometry):
         pose = odom.pose.pose
