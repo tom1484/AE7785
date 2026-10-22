@@ -10,10 +10,10 @@ Xingyu Zhu
 Tool (not a ROS node):
     tune_planner
 
-Interactive plots of the virtual target planner and the low-level controller
-of go_to_goal, for tuning their parameters offline. The curves are computed
-with the same VirtualTargetPlanner and LowLevelController classes the robot
-runs, starting from the parameters in robot.yaml.
+Interactive plots of the virtual target planner (go_to_goal) and the
+low-level controller (low_level_controller), for tuning their parameters
+offline. The curves are computed with the same VirtualTargetPlanner and
+LowLevelController classes the robot runs, starting from the parameters in robot.yaml.
 
 Scene (wall following, robot frame, robot at the origin heading +x):
     - The wall is a straight line at distance d_AO, on the robot's right
@@ -28,8 +28,8 @@ Plots:
     2. theta_VT and omega vs z      5. GTG only: distance terms vs goal distance
     3. Distance terms vs z          6. GTG only: theta_VT and omega vs goal bearing
 
-"Print YAML" prints the current go_to_goal parameters, ready to paste into
-robot.yaml.
+"Print YAML" prints the current go_to_goal and low_level_controller
+parameters, ready to paste into robot.yaml.
 
 Usage:
     ros2 run team85_lab4 tune_planner
@@ -48,12 +48,12 @@ import yaml
 
 from ament_index_python.packages import get_package_share_directory
 
-from team85_lab4.scripts.go_to_goal import (
-    ControllerConfig, LowLevelController, PlannerConfig, Target, VirtualTargetPlanner,
-)
+from team85_lab4.scripts.go_to_goal import PlannerConfig, Target, VirtualTargetPlanner
+from team85_lab4.scripts.low_level_controller import ControllerConfig, LowLevelController
 
 
-# (name, min, max): sliders for the go_to_goal parameters, grouped
+# (name, min, max): sliders for the go_to_goal and low_level_controller
+# parameters
 PLANNER_SLIDERS = [
     ("k_gtg_theta", 0.1, 5.0),
     ("k_fw", 0.05, 5.0),
@@ -108,11 +108,11 @@ BEARING_RANGE = np.linspace(-180.0, 180.0, 361)
 
 
 def load_parameters(path: str) -> Dict[str, float]:
-    """go_to_goal parameters (with the shared goal_tolerance) from a robot.yaml."""
+    """Planner and controller parameters (with the shared goal_tolerance) from a robot.yaml."""
     params = dict(DEFAULTS)
     with open(path) as f:
         data = yaml.safe_load(f) or {}
-    for section in ("/**", "go_to_goal"):
+    for section in ("/**", "go_to_goal", "low_level_controller"):
         values = (data.get(section) or {}).get("ros__parameters") or {}
         params.update({k: v for k, v in values.items() if k in DEFAULTS})
     return params
@@ -246,11 +246,14 @@ class Tuner:
     def on_print(self, _):
         values = self.parameter_values()
         print("\n# go_to_goal (paste under go_to_goal: ros__parameters: in robot.yaml)")
-        for name, _, _ in PLANNER_SLIDERS + CONTROLLER_SLIDERS:
+        for name, _, _ in PLANNER_SLIDERS:
             if name == "goal_tolerance":
                 continue
             print(f"    {name}: {yaml_float(values[name])}")
         print(f"    forward_only: {str(values['forward_only']).lower()}")
+        print("# low_level_controller (paste under low_level_controller: ros__parameters:)")
+        for name, _, _ in CONTROLLER_SLIDERS:
+            print(f"    {name}: {yaml_float(values[name])}")
         print(f"# shared (/**): goal_tolerance: {yaml_float(values['goal_tolerance'])}")
 
     # =============================================================

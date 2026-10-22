@@ -22,18 +22,19 @@ Subscribes:
     /avoidance_state
       team85_lab4_interfaces/msg/AvoidanceState
       Whether to avoid, the obstacle, and the wall-following vector (robot frame).
+    /pause
+      std_msgs/msg/Bool (transient local)
+      true holds the robot (PAUSED target) until false; sent by avoidance_monitor.
 
 Publishes:
     /virtual_target
       team85_lab4_interfaces/msg/VirtualTarget
       Robot-relative virtual heading and distance, with diagnostics.
-    /cmd_vel
-      geometry_msgs/msg/Twist
 
 Runs the virtual target planner (README.md): heading from go-to-goal (GTG)
 and follow-wall (FW), distance from GTG, avoid-obstacle (AO) and FW. FW and AO
-are both enabled while obstacle_state is avoiding. A low-level P controller
-(after Lab 3's chase_object) turns the virtual target into velocities.
+are both enabled while obstacle_state is avoiding. The low_level_controller
+node turns the virtual target into velocities.
 """
 
 import math
@@ -43,11 +44,12 @@ from typing import Dict, Optional, Sequence
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
-from rclpy.signals import SignalHandlerOptions
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.time import Time
 
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import PointStamped, Twist
+from geometry_msgs.msg import PointStamped
+from std_msgs.msg import Bool
 from team85_lab4_interfaces.msg import AvoidanceState, GoalStatus
 from team85_lab4_interfaces.msg import VirtualTarget as VirtualTargetMsg
 
@@ -57,6 +59,10 @@ from team85_lab4.verbose_logger import VerboseLogger
 
 
 CONTROL_PERIOD = 0.05  # Seconds between control updates (20 Hz)
+
+# /pause keeps its last value for late subscribers, so a restarted go_to_goal
+# stays paused
+PAUSE_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
 def yaw_from_quaternion(q) -> float:
@@ -292,64 +298,6 @@ class VirtualTargetPlanner:
 
 
 # =============================================================
-# Low-level controller
-# =============================================================
-
-@dataclass
-class ControllerConfig:
-    """Gains and limits of the low-level controller."""
-    kp_linear: float          # Linear speed per meter of virtual distance (1/s)
-    kp_angular: float         # Angular speed per radian of virtual heading (1/s)
-    distance_deadband: float  # |distance_vt| below this gives no linear speed (m)
-    angle_deadband: float     # |theta_vt| below this gives no angular speed (rad)
-    max_linear_speed: float   # (m/s)
-    max_angular_speed: float  # (rad/s)
-
-    def __post_init__(self):
-        for name in ("kp_linear", "kp_angular", "max_linear_speed", "max_angular_speed"):
-            value = getattr(self, name)
-            if not (math.isfinite(value) and value > 0.0):
-                raise ValueError(f"{name} must be finite and > 0, got {value}")
-        for name in ("distance_deadband", "angle_deadband"):
-            value = getattr(self, name)
-            if not (math.isfinite(value) and value >= 0.0):
-                raise ValueError(f"{name} must be finite and >= 0, got {value}")
-
-
-class LowLevelController:
-    """
-    P controller from the virtual target to velocities.
-
-    distance_vt is a signed longitudinal reference along the robot's heading,
-    so it maps to the linear speed directly (negative: backing up); it is
-    never turned into a point, which would flip the bearing when negative.
-    theta_vt is positive to the left, like ROS angular.z. The heading is
-    still controlled when distance_vt is zero, so the robot turns in place.
-    """
-
-    def __init__(self, config: ControllerConfig):
-        self.cfg = config
-
-    def compute(self, target: Target):
-        """Returns (linear, angular) speeds; zero unless the target is OK."""
-        cfg = self.cfg
-        if target.status != "OK":
-            return 0.0, 0.0
-
-        linear = 0.0
-        if abs(target.distance_vt) > cfg.distance_deadband:
-            linear = cfg.kp_linear * target.distance_vt
-
-        angular = 0.0
-        if abs(target.theta_vt) > cfg.angle_deadband:
-            angular = cfg.kp_angular * target.theta_vt
-
-        linear = min(max(linear, -cfg.max_linear_speed), cfg.max_linear_speed)
-        angular = min(max(angular, -cfg.max_angular_speed), cfg.max_angular_speed)
-        return linear, angular
-
-
-# =============================================================
 # Node
 # =============================================================
 
@@ -383,14 +331,6 @@ class GoToGoal(Node):
             max_fw_exponent=float(param("max_fw_exponent", 20.0)),
             forward_only=bool(param("forward_only", True)),
         ))
-        self.controller = LowLevelController(ControllerConfig(
-            kp_linear=float(param("kp_linear", 0.4)),
-            kp_angular=float(param("kp_angular", 1.2)),
-            distance_deadband=float(param("distance_deadband", 0.005)),
-            angle_deadband=float(param("angle_deadband", 0.05)),
-            max_linear_speed=float(param("max_linear_speed", 0.15)),
-            max_angular_speed=float(param("max_angular_speed", 0.8)),
-        ))
         # Inputs older than this zero the target and stop the robot (s)
         self.input_timeout = float(param("input_timeout", 0.5))
         self.log = VerboseLogger(self)
@@ -400,6 +340,7 @@ class GoToGoal(Node):
         self.yaw: Optional[float] = None
         self.goal: Optional[np.ndarray] = None      # odom frame
         self.finished = False
+        self.paused = False
         self.avoidance_state: Optional[AvoidanceState] = None
         self.received: Dict[str, Optional[Time]] = {"odom": None, "goal": None, "avoidance": None}
         self.status: Optional[str] = None
@@ -416,9 +357,11 @@ class GoToGoal(Node):
         self.state_subscription = self.create_subscription(
             AvoidanceState, "/avoidance_state", self.state_callback, 10
         )
+        self.pause_subscription = self.create_subscription(
+            Bool, "/pause", self.pause_callback, PAUSE_QOS
+        )
 
         self.target_publisher = self.create_publisher(VirtualTargetMsg, "/virtual_target", 10)
-        self.cmd_publisher = self.create_publisher(Twist, "/cmd_vel", 10)
         self.timer = self.create_timer(CONTROL_PERIOD, self.control_loop)
 
         self.log.basic("go_to_goal started")
@@ -444,6 +387,11 @@ class GoToGoal(Node):
         self.avoidance_state = msg
         self.received["avoidance"] = self.get_clock().now()
 
+    def pause_callback(self, msg: Bool):
+        if msg.data != self.paused:
+            self.log.basic("Paused" if msg.data else "Resumed")
+        self.paused = msg.data
+
     def is_fresh(self, name: str) -> bool:
         received = self.received[name]
         if received is None:
@@ -459,7 +407,9 @@ class GoToGoal(Node):
         state = self.avoidance_state
         avoiding = False
 
-        if self.finished:
+        if self.paused:
+            target = safe_invalid_target("PAUSED")
+        elif self.finished:
             target = safe_invalid_target("FINISHED")
         elif not all(self.is_fresh(name) for name in self.received):
             target = safe_invalid_target("STALE_INPUT")
@@ -482,19 +432,12 @@ class GoToGoal(Node):
 
         self.publish_target(target, avoiding)
 
-        linear, angular = self.controller.compute(target)
-        cmd = Twist()
-        cmd.linear.x = float(linear)
-        cmd.angular.z = float(angular)
-        self.cmd_publisher.publish(cmd)
-
         if target.status != self.status:
             self.log.basic(f"Virtual target status: {target.status}")
             self.status = target.status
         self.log.continuous(
             f"theta_vt={np.degrees(target.theta_vt):6.1f} deg "
-            f"distance_vt={target.distance_vt:.3f} m avoiding={avoiding} {target.status} | "
-            f"v={linear:.3f} m/s w={angular:.3f} rad/s",
+            f"distance_vt={target.distance_vt:.3f} m avoiding={avoiding} {target.status}",
             throttle_duration_sec=0.5,
         )
 
@@ -521,13 +464,9 @@ class GoToGoal(Node):
         msg.raw_distance = d["raw_distance_vt"]
         self.target_publisher.publish(msg)
 
-    def stop_robot(self):
-        self.cmd_publisher.publish(Twist())
-
 
 def main(args=None):
-    # Handle Ctrl+C ourselves, so the robot can be stopped before shutdown
-    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
+    rclpy.init(args=args)
     node = None
 
     try:
@@ -537,8 +476,6 @@ def main(args=None):
         pass
     finally:
         if node is not None:
-            if node.context.ok():
-                node.stop_robot()
             node.destroy_node()
         rclpy.try_shutdown()
 

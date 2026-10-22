@@ -50,8 +50,7 @@ goal:
     # installed wayPoints.txt of this package.
     # waypoints_file: /path/to/wayPoints.txt
 
-# Virtual target planner and low-level controller (README.md). Initial
-# guesses, not tuned yet.
+# Virtual target planner (README.md)
 go_to_goal:
   ros__parameters:
     input_timeout: 0.5          # Zero the target when an input is older (s)
@@ -87,7 +86,11 @@ go_to_goal:
     min_tangent_cross: 0.2      # Minimum |tangent x normal|, in (0, 1)
     max_fw_exponent: 20.0       # FW exponential overflow guard
 
-    # Low-level P controller: v = kp_linear * distance_vt, w = kp_angular * theta_vt
+# Low-level P controller (README.md): v = kp_linear * distance_vt,
+# w = kp_angular * theta_vt
+low_level_controller:
+  ros__parameters:
+    target_timeout: 0.5         # Stop when no virtual target arrived for this long (s)
     kp_linear: 0.6              # (1/s)
     kp_angular: 1.0             # (1/s)
     # Keep distance_deadband well below what distance_vt is at the goal

@@ -18,6 +18,14 @@ Subscribes:
     /scan_segments
       team85_lab4_interfaces/msg/ScanSegments
       Drawn faintly for context.
+    /pause
+      std_msgs/msg/Bool (transient local)
+      Whether go_to_goal is paused, from any publisher.
+
+Publishes:
+    /pause
+      std_msgs/msg/Bool (transient local)
+      Toggled with the space key: true pauses go_to_goal, false resumes it.
 
 Debug tool: draws what obstacle_state decides on, in the robot frame: the
 path zone (along the goal direction) and avoid distance, the obstacle point with its normal (white), the
@@ -26,6 +34,7 @@ wall direction (magenta) while avoiding, and go_to_goal's virtual target
 at the signed virtual distance (behind the robot when backing up). A panel shows the state, each avoidance
 criterion with its value and threshold (green: holds, red: fails), and the
 virtual target with its steering terms.
+Press space to pause / resume go_to_goal (the robot stops while paused).
 Press 'q' / Esc, close the window, or Ctrl+C to quit.
 """
 
@@ -37,7 +46,10 @@ from typing import Optional
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.time import Time
+
+from std_msgs.msg import Bool
 
 from team85_lab4_interfaces.msg import AvoidanceState, ScanSegments, VirtualTarget
 
@@ -81,6 +93,10 @@ TEXT_COLOR = (220, 220, 220)
 DIM_COLOR = (150, 150, 150)
 
 QUIT_KEYS = (ord("q"), 27)  # 'q' and Esc
+PAUSE_KEY = ord(" ")
+
+# Same as go_to_goal: the last value is kept for late subscribers
+PAUSE_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
 class AvoidanceMonitor(Node):
@@ -101,6 +117,8 @@ class AvoidanceMonitor(Node):
         self.segments: Optional[ScanSegments] = None
         self.target: Optional[VirtualTarget] = None
         self.target_received: Optional[Time] = None
+        # Last value on /pause (ours or another publisher's); None until any
+        self.paused: Optional[bool] = None
 
         self.target_subscription = self.create_subscription(
             VirtualTarget, "/virtual_target", self.target_callback, 10
@@ -111,6 +129,10 @@ class AvoidanceMonitor(Node):
         self.segments_subscription = self.create_subscription(
             ScanSegments, "/scan_segments", self.segments_callback, 10
         )
+        self.pause_subscription = self.create_subscription(
+            Bool, "/pause", self.pause_callback, PAUSE_QOS
+        )
+        self.pause_publisher = self.create_publisher(Bool, "/pause", PAUSE_QOS)
 
         self.running = True
         cv2.namedWindow(WINDOW_NAME)
@@ -136,6 +158,15 @@ class AvoidanceMonitor(Node):
     def target_callback(self, msg: VirtualTarget):
         self.target = msg
         self.target_received = self.get_clock().now()
+
+    def pause_callback(self, msg: Bool):
+        self.paused = msg.data
+
+    def toggle_pause(self):
+        paused = not self.paused
+        self.pause_publisher.publish(Bool(data=paused))
+        self.paused = paused
+        self.log.basic("Pause sent" if paused else "Resume sent")
 
     def is_fresh(self, received: Optional[Time]) -> bool:
         if received is None:
@@ -257,6 +288,9 @@ class AvoidanceMonitor(Node):
                    target: Optional[VirtualTarget]):
         lines = []
 
+        if self.paused:
+            lines += [("PAUSED (space: resume)", FAIL_COLOR), ("", TEXT_COLOR)]
+
         if state is None:
             lines.append(("No /avoidance_state", FAIL_COLOR))
         else:
@@ -323,7 +357,7 @@ class AvoidanceMonitor(Node):
                      TEXT_COLOR if target.enable_fw else DIM_COLOR),
                 ]
 
-        lines += [("", TEXT_COLOR), ("q: quit", DIM_COLOR)]
+        lines += [("", TEXT_COLOR), ("space: pause/resume  q: quit", DIM_COLOR)]
         for i, (text, color) in enumerate(lines):
             cv2.putText(panel, text, (10, 22 + LINE_HEIGHT * i), cv2.FONT_HERSHEY_SIMPLEX,
                         FONT_SCALE, color, 1)
@@ -334,6 +368,8 @@ class AvoidanceMonitor(Node):
         cv2.imshow(WINDOW_NAME, self.render())
         key = cv2.waitKey(1) & 0xFF
         closed = cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1
+        if key == PAUSE_KEY:
+            self.toggle_pause()
         if key in QUIT_KEYS or closed:
             self.running = False
 

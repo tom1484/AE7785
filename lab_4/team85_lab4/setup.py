@@ -32,6 +32,7 @@ setup(
             'obstacle_state = team85_lab4.scripts.obstacle_state:main',
             'goal = team85_lab4.scripts.goal:main',
             'go_to_goal = team85_lab4.scripts.go_to_goal:main',
+            'low_level_controller = team85_lab4.scripts.low_level_controller:main',
             'view_scan = team85_lab4.scripts.view_scan:main',
             'goal_monitor = team85_lab4.scripts.goal_monitor:main',
             'avoidance_monitor = team85_lab4.scripts.avoidance_monitor:main',

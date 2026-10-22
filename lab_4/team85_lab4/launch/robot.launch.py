@@ -2,7 +2,7 @@
 Nodes that run on the robot.
 
     scan_processor -> obstacle_state --+
-                                       +--> go_to_goal -> /cmd_vel
+                                       +--> go_to_goal -> low_level_controller -> /cmd_vel
     goal ------------------------------+
 
 Usage:
@@ -23,7 +23,7 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
 
-NODES = ["scan_processor", "obstacle_state", "goal", "go_to_goal"]
+NODES = ["scan_processor", "obstacle_state", "goal", "go_to_goal", "low_level_controller"]
 
 
 def generate_launch_description():

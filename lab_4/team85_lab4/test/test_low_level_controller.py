@@ -1,10 +1,11 @@
-"""Unit tests of the low-level controller in go_to_goal."""
+"""Unit tests of the low-level controller in low_level_controller."""
 
 import math
 
 import pytest
 
-from team85_lab4.scripts.go_to_goal import ControllerConfig, LowLevelController, Target
+from team85_lab4.scripts.go_to_goal import Target
+from team85_lab4.scripts.low_level_controller import ControllerConfig, LowLevelController
 
 
 def controller(**overrides) -> LowLevelController:
