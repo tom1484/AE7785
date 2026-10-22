@@ -388,6 +388,82 @@ Planner symbols:
 | `goal_monitor` | World-frame map: waypoints (green: reached, yellow: current, gray: upcoming) with tolerance circles, the trajectory (`c` clears it), the robot, and the goal vector. The panel shows the goal index, distance, hold timer, robot pose, and goal vector. |
 | `avoidance_monitor` | Robot-frame view: path zone and avoid distance, obstacle and normal (white), wall direction (magenta), and virtual target (cyan: heading ray, plus the signed distance as a point on the robot's $x$ axis). The panel shows the state, each criterion against its threshold, and the planner diagnostics. |
 
+### Offline tuning: `tune_planner`
+
+```zsh
+ros2 run team85_lab4 tune_planner                         # starts from the installed robot.yaml
+ros2 run team85_lab4 tune_planner --params /path/to/robot.yaml
+```
+
+A matplotlib window, not a ROS node, so no robot is needed. It plots the planner and the low-level controller, with a slider for every `go_to_goal` parameter. The curves come from the same `VirtualTargetPlanner` and `LowLevelController` classes the robot runs, so what you see is what the robot computes.
+
+**Controls** (right side):
+- **Planner and controller sliders:** start from `robot.yaml`.
+- **Scene sliders:** obstacle distance, goal angle, goal distance, and the $z$ used by plot 4.
+- **Toggles:** wall side (right: $\sigma=+1$, left: $\sigma=-1$) and `forward_only`.
+- **Reset** returns to the `robot.yaml` values.
+- **Print YAML** prints the current values, ready to paste under `go_to_goal` in `robot.yaml` (`goal_tolerance` goes in the shared `/**` section).
+- **Invalid combinations** (e.g. `u_gtg_min` > `u_gtg_max`) show the error in the title, and the plots keep their last valid state.
+
+**Scene.** Plots 1 to 4 describe the robot during avoidance, with FW and AO enabled:
+
+- The robot is at the origin, heading $+x$.
+- A straight wall runs at the obstacle distance $d_{\mathrm{AO}}$, on the robot's right or left.
+- The wall tangent points in the wall-following direction.
+- The goal is at the goal distance, at the goal angle from the tangent toward the wall: $0^\circ$ means along the wall, $90^\circ$ straight behind it, and negative angles away from the wall.
+
+The horizontal axis of plots 1 to 3 is the FW error $z$: the robot's heading relative to the tangent, signed so that
+
+- $z<0$: the robot points into the wall,
+- $z=0$: it is parallel to the wall,
+- $z>0$: it is turned away from the wall.
+
+A robot entering avoidance head-on starts near $z=-\pi/2\approx-1.6$, and wall following should bring it to $z\approx0$.
+
+| Plot | Horizontal axis | Curves |
+|---|---|---|
+| 1. Heading terms | $z$ | $u_{\mathrm G}^{\theta}$ (after suppression), $u_{\mathrm{FW}}^{\theta}$, and their sum $u^\theta$ |
+| 2. Virtual heading and $\omega$ | $z$ | $\theta_{\mathrm{VT}}$ (deg, left axis); $\omega$ (rad/s, right axis), dashed at $\pm$`max_angular_speed` |
+| 3. Distance terms and $v$ | $z$ | Projected GTG, AO and FW distance terms and their sum $u^d$ (left); $v$ (m/s, right), dashed at $\pm$`max_linear_speed` |
+| 4. Proximity terms | $d_{\mathrm{AO}}$ | $w_{\mathrm{FW}}$ and $u_{\mathrm{AO}}^d/u_{\mathrm{AO}}^{\max}$ (left); $\omega$ and $v$ (right), at the $z$ slider |
+| 5. GTG only, goal ahead | Goal distance | $u_{\mathrm G}^{d}$, $d_{\mathrm{VT}}$ (left); $v$ (right) |
+| 6. GTG only, goal around | Goal bearing | $\theta_{\mathrm{VT}}$ (deg, left); $\omega$ and $v$ (right) |
+
+**1. Heading terms vs $z$.** This shows how FW and GTG share the steering.
+- **$u_{\mathrm{FW}}^{\theta}$** is zero for $z\ge0$ and grows exponentially as the robot turns further into the wall. `k_fw` sets its size, and `s_fw` how fast it grows. The proximity weight scales it, so moving the obstacle distance slider beyond `l_d` shrinks it.
+- **$u_{\mathrm G}^{\theta}$** is flat at zero wherever GTG would steer into the wall (suppression). Past $z=0$ it ramps back over `delta`.
+- **$u^\theta$** must have the sign of the FW correction for all $z<0$. That is the priority guarantee.
+- **Tuning:** a steep $u^\theta$ near $z=0$ makes the robot snap parallel and overshoot. A wider `delta` softens how GTG pulls the robot back toward the wall after it has turned away. The vertical axis is clipped at $\pm10$.
+
+**2. Virtual heading and $\omega$ vs $z$.** This shows what the robot actually does with the heading.
+- **$\theta_{\mathrm{VT}}=\tan^{-1}(u^\theta)$** saturates toward $\pm90^\circ$.
+- **$\omega$** is $\theta_{\mathrm{VT}}$ through `kp_angular`, zero inside `angle_deadband`, and clipped at `max_angular_speed`.
+- **Flat parts of $\omega$** are where the robot turns at its limit. Parameter changes there have no effect, which is why lowering a large `k_fw` may not visibly change anything.
+- **The slope of $\omega$ around $z=0$** decides how smoothly the robot settles parallel to the wall. Too steep, and it oscillates in and out of alignment.
+
+**3. Distance terms and $v$ vs $z$.** This shows whether the robot moves forward along the wall. Each term is its magnitude times its cosine with the heading:
+- **GTG** is largest when the robot faces the goal.
+- **AO** is negative while the robot faces the wall, and zero when parallel to it.
+- **FW** is largest when aligned with the tangent, and negative when pointing against it.
+
+The robot backs up where $v<0$ and stalls where the sum crosses zero. Around $z\approx0$, $v$ should be clearly positive; if it isn't, the robot barely moves while following the wall. Raise `u_fw_distance`, or lower `u_ao_max`. `distance_scale`, `max_reference_distance` and `kp_linear` map the sum to $v$; `forward_only` cuts $v$ at 0.
+
+**4. Proximity terms vs $d_{\mathrm{AO}}$.** This shows how behavior changes as the robot approaches the wall, at the $z$ chosen by its slider.
+- **$w_{\mathrm{FW}}$** (FW steering strength) and **$u_{\mathrm{AO}}^d/u_{\mathrm{AO}}^{\max}$** (AO repulsion strength) both equal 1 inside `l_d` (dashed line) and decay beyond it, at rates `s_fw_distance` and `s_ao`.
+- **$\omega$ and $v$** show the resulting turn rate and speed. The dotted line marks the scene's obstacle distance.
+- **Where avoidance starts:** `obstacle_state` begins avoiding at `avoid_distance`. Read the curves there to see how gently the robot turns when avoidance starts.
+
+**5. GTG only: vs goal distance (goal straight ahead).** This shows the approach to a goal without obstacles.
+- **$u_{\mathrm G}^{d}$** is $k_{\mathrm G}^{d}\,d_{\mathrm{GTG}}$ clipped between `u_gtg_min` and `u_gtg_max`.
+- **$d_{\mathrm{VT}}$ and $v$** follow from it. Inside `goal_tolerance` (dashed) everything is zero (`GOAL_REACHED`).
+- **Speed limit:** the distance where $v$ reaches its limit shows how early the robot starts slowing down.
+- **Final approach:** the floor set by `u_gtg_min` is the speed of the final approach. It must stay above `distance_deadband`, or the robot stops short of the goal.
+
+**6. GTG only: vs goal bearing.** This shows turning toward a goal without obstacles, at the goal distance slider.
+- **$\theta_{\mathrm{VT}}$ and $\omega$** show how fast the robot turns toward a goal at each bearing; positive means the goal is on the left. A wide flat region of $\omega$ means the turn rate is limited by `max_angular_speed` for most bearings.
+- **$v$** falls with the cosine of the bearing: zero with the goal to the side, negative (backing up) with the goal behind in signed mode.
+- **The jump at $\pm180^\circ$** comes from the angle wrap: for a goal straight behind, the turn direction is arbitrary.
+
 ---
 
 ## Tests
