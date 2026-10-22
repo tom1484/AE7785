@@ -101,12 +101,12 @@ ros2 launch team85_lab4 debug.launch.py
           /avoidance_state │                     ▼        ▼
                            │              ┌────────────────┐
                            └─────────────►│   go_to_goal   │◄── /odom
-                                          └────────────────┘◄── /pause
-                                         /virtual_target │     (avoidance_monitor)
+                                          └────────────────┘
+                                         /virtual_target │
                                                          ▼
                                              ┌──────────────────────┐
-                                             │ low_level_controller │
-                                             └──────────────────────┘
+                                             │ low_level_controller │◄── /pause
+                                             └──────────────────────┘    (avoidance_monitor)
                                                 /cmd_vel │
                                                          ▼
                                                      TurtleBot3
@@ -119,8 +119,8 @@ ros2 launch team85_lab4 debug.launch.py
 | `scan_processor` | `/scan`, `/goal_vector` | `/scan_segments`, `/obstacle_position`, `/obstacle_normal` | Segments each scan; finds the closest point in the path zone and its surface normal |
 | `obstacle_state` | `/obstacle_position`, `/obstacle_normal`, `/goal_vector` | `/avoidance_state` | Avoidance state machine and wall-following vector (20 Hz) |
 | `goal` | `/odom` | `/goal`, `/goal_vector`, `/goal_status` | Defines the world frame, tracks and switches goals; serves `/reset_goals` |
-| `go_to_goal` | `/odom`, `/goal`, `/goal_status`, `/avoidance_state`, `/pause` | `/virtual_target` | Virtual target planner (20 Hz) |
-| `low_level_controller` | `/virtual_target` | `/cmd_vel` | P controller, run on each virtual target |
+| `go_to_goal` | `/odom`, `/goal`, `/goal_status`, `/avoidance_state` | `/virtual_target` | Virtual target planner (20 Hz) |
+| `low_level_controller` | `/virtual_target`, `/pause` | `/cmd_vel` | P controller, run on each virtual target |
 | `view_scan` | `/scan`, `/scan_segments`, `/obstacle_*`, `/goal_vector` | | Debug: scan, segments, obstacle |
 | `goal_monitor` | `/odom`, `/goal_status` | | Debug: map, trajectory, goal progress; `c` calls `/reset_goals` |
 | `avoidance_monitor` | `/avoidance_state`, `/virtual_target`, `/scan_segments`, `/pause` | `/pause` | Debug: avoidance criteria and virtual target; space pauses / resumes |
@@ -140,7 +140,7 @@ ros2 launch team85_lab4 debug.launch.py
 | `/avoidance_state` | `AvoidanceState` | Robot | Avoiding flag, wall vector and side, obstacle and normal used, path zone, thresholds |
 | `/virtual_target` | `VirtualTarget` | Robot | $\theta_{\mathrm{VT}}$, $d_{\mathrm{VT}}$, status, planner diagnostics |
 | `/reset_goals` | `std_srvs/Trigger` (service) | | Back to goal 1, with the world origin set again from the next odometry |
-| `/pause` | `std_msgs/Bool` | | `true` pauses `go_to_goal`, `false` resumes it. Transient local, so a restarted `go_to_goal` gets the last value |
+| `/pause` | `std_msgs/Bool` | | `true` pauses `low_level_controller` (the robot stops, the virtual target is still published), `false` resumes it. Transient local, so a restarted `low_level_controller` gets the last value |
 | `/cmd_vel` | `geometry_msgs/Twist` | Robot | Velocity command |
 
 The robot frame and the LiDAR frame are identical: $x$ forward, $y$ left, angles counterclockwise from $+x$.
@@ -325,7 +325,6 @@ The output is zeroed with a status explaining why:
 | Status | Condition |
 |---|---|
 | `OK` | Valid target |
-| `PAUSED` | Paused on `/pause` (space in `avoidance_monitor`) |
 | `GOAL_REACHED` | $d_{\mathrm{GTG}}\le$ `goal_tolerance` (the hold timer runs while stopped) |
 | `FINISHED` | All goals reached (`/goal_status`) |
 | `STALE_INPUT` | Odometry, goal, or avoidance state older than `input_timeout` |
@@ -344,7 +343,7 @@ v=\operatorname{clip}\left(k_v\,d_{\mathrm{VT}},\ \pm v_{\max}\right),\qquad
 \omega=\operatorname{clip}\left(k_\omega\,\theta_{\mathrm{VT}},\ \pm\omega_{\max}\right)
 $$
 
-Each term is zero inside its deadband (`distance_deadband`, `angle_deadband`). $\theta_{\mathrm{VT}}$ is positive to the left like ROS `angular.z`, and a negative $d_{\mathrm{VT}}$ backs the robot up. The heading is controlled even when $d_{\mathrm{VT}}=0$ (turning in place). Any status other than `OK` stops the robot. A zero command is also sent once when no virtual target has arrived for `target_timeout` (so `teleop_keyboard` is not overridden while `go_to_goal` is down), and on shutdown.
+Each term is zero inside its deadband (`distance_deadband`, `angle_deadband`). $\theta_{\mathrm{VT}}$ is positive to the left like ROS `angular.z`, and a negative $d_{\mathrm{VT}}$ backs the robot up. The heading is controlled even when $d_{\mathrm{VT}}=0$ (turning in place). Any status other than `OK` stops the robot. A zero command is also sent once on `/pause` (nothing is published while paused) and once when no virtual target has arrived for `target_timeout` (so `teleop_keyboard` is not overridden while `go_to_goal` is down), and on shutdown.
 
 ---
 
@@ -396,7 +395,7 @@ Planner symbols:
 |---|---|
 | `view_scan` | LiDAR scan around the robot (up: $+x$). Shows segments in color while `/scan_segments` arrives, otherwise the raw scan in gray. Also draws the path zone, the obstacle point, and its normal. |
 | `goal_monitor` | World-frame map: waypoints (green: reached, yellow: current, gray: upcoming) with tolerance circles, the trajectory, the robot, and the goal vector. The panel shows the goal index, distance, hold timer, robot pose, and goal vector. `c` clears the trajectory and calls `/reset_goals`: back to goal 1, with the world origin moved to the robot's current pose (e.g. after carrying the robot back to the start). |
-| `avoidance_monitor` | Robot-frame view: path zone and avoid distance, obstacle and normal (white), wall direction (magenta), and virtual target (cyan: heading ray, plus the signed distance as a point on the robot's $x$ axis). The panel shows the state, each criterion against its threshold, and the planner diagnostics. Space toggles `/pause`: the robot stops (status `PAUSED`) until space is pressed again. |
+| `avoidance_monitor` | Robot-frame view: path zone and avoid distance, obstacle and normal (white), wall direction (magenta), and virtual target (cyan: heading ray, plus the signed distance as a point on the robot's $x$ axis). The panel shows the state, each criterion against its threshold, and the planner diagnostics. Space toggles `/pause`: `low_level_controller` stops the robot until space is pressed again, while the virtual target is still planned and drawn. |
 
 ### Offline tuning: `tune_planner`
 

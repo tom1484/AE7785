@@ -22,9 +22,6 @@ Subscribes:
     /avoidance_state
       team85_lab4_interfaces/msg/AvoidanceState
       Whether to avoid, the obstacle, and the wall-following vector (robot frame).
-    /pause
-      std_msgs/msg/Bool (transient local)
-      true holds the robot (PAUSED target) until false; sent by avoidance_monitor.
 
 Publishes:
     /virtual_target
@@ -44,12 +41,10 @@ from typing import Dict, Optional, Sequence
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
-from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.time import Time
 
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PointStamped
-from std_msgs.msg import Bool
 from team85_lab4_interfaces.msg import AvoidanceState, GoalStatus
 from team85_lab4_interfaces.msg import VirtualTarget as VirtualTargetMsg
 
@@ -59,10 +54,6 @@ from team85_lab4.verbose_logger import VerboseLogger
 
 
 CONTROL_PERIOD = 0.05  # Seconds between control updates (20 Hz)
-
-# /pause keeps its last value for late subscribers, so a restarted go_to_goal
-# stays paused
-PAUSE_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
 def yaw_from_quaternion(q) -> float:
@@ -340,7 +331,6 @@ class GoToGoal(Node):
         self.yaw: Optional[float] = None
         self.goal: Optional[np.ndarray] = None      # odom frame
         self.finished = False
-        self.paused = False
         self.avoidance_state: Optional[AvoidanceState] = None
         self.received: Dict[str, Optional[Time]] = {"odom": None, "goal": None, "avoidance": None}
         self.status: Optional[str] = None
@@ -356,9 +346,6 @@ class GoToGoal(Node):
         )
         self.state_subscription = self.create_subscription(
             AvoidanceState, "/avoidance_state", self.state_callback, 10
-        )
-        self.pause_subscription = self.create_subscription(
-            Bool, "/pause", self.pause_callback, PAUSE_QOS
         )
 
         self.target_publisher = self.create_publisher(VirtualTargetMsg, "/virtual_target", 10)
@@ -387,11 +374,6 @@ class GoToGoal(Node):
         self.avoidance_state = msg
         self.received["avoidance"] = self.get_clock().now()
 
-    def pause_callback(self, msg: Bool):
-        if msg.data != self.paused:
-            self.log.basic("Paused" if msg.data else "Resumed")
-        self.paused = msg.data
-
     def is_fresh(self, name: str) -> bool:
         received = self.received[name]
         if received is None:
@@ -407,9 +389,7 @@ class GoToGoal(Node):
         state = self.avoidance_state
         avoiding = False
 
-        if self.paused:
-            target = safe_invalid_target("PAUSED")
-        elif self.finished:
+        if self.finished:
             target = safe_invalid_target("FINISHED")
         elif not all(self.is_fresh(name) for name in self.received):
             target = safe_invalid_target("STALE_INPUT")

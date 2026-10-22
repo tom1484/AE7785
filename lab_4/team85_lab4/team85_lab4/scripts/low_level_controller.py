@@ -14,6 +14,9 @@ Subscribes:
     /virtual_target
       team85_lab4_interfaces/msg/VirtualTarget
       Robot-relative virtual heading and distance from go_to_goal.
+    /pause
+      std_msgs/msg/Bool (transient local)
+      true stops the robot until false; sent by avoidance_monitor (space).
 
 Publishes:
     /cmd_vel
@@ -21,8 +24,9 @@ Publishes:
 
 A P controller (after Lab 3's chase_object) that turns each virtual target
 into velocities as it arrives. The robot is stopped when the target is not OK
-(e.g. PAUSED, FINISHED, STALE_INPUT), when no target arrived for
-target_timeout, and on shutdown.
+(e.g. FINISHED, STALE_INPUT), when no target arrived for target_timeout,
+while paused, and on shutdown. Pausing here (not in go_to_goal) keeps the
+virtual target published, so the monitors still show it.
 """
 
 import math
@@ -33,10 +37,12 @@ from typing import Optional
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
 
 from geometry_msgs.msg import Twist
+from std_msgs.msg import Bool
 from team85_lab4_interfaces.msg import VirtualTarget as VirtualTargetMsg
 
 from team85_lab4.scripts.go_to_goal import Target
@@ -44,6 +50,10 @@ from team85_lab4.verbose_logger import VerboseLogger
 
 
 WATCHDOG_PERIOD = 0.05  # Seconds between checks for a missing target (20 Hz)
+
+# /pause keeps its last value for late subscribers, so a restarted
+# low_level_controller stays paused
+PAUSE_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
 @dataclass
@@ -128,20 +138,37 @@ class LowLevelControllerNode(Node):
         # Whether the robot was stopped for a missing target, so the stop is
         # sent once (and teleop is not overridden while go_to_goal is down)
         self.timed_out = False
+        # While paused, the stop is sent once and nothing after it (so teleop
+        # can move the robot)
+        self.paused = False
 
         self.target_subscription = self.create_subscription(
             VirtualTargetMsg, "/virtual_target", self.target_callback, 10
+        )
+        self.pause_subscription = self.create_subscription(
+            Bool, "/pause", self.pause_callback, PAUSE_QOS
         )
         self.cmd_publisher = self.create_publisher(Twist, "/cmd_vel", 10)
         self.watchdog = self.create_timer(WATCHDOG_PERIOD, self.check_timeout)
 
         self.log.basic("low_level_controller started")
 
+    def pause_callback(self, msg: Bool):
+        if msg.data == self.paused:
+            return
+        self.paused = msg.data
+        self.log.basic("Paused" if self.paused else "Resumed")
+        if self.paused:
+            self.stop_robot()
+
     def target_callback(self, msg: VirtualTargetMsg):
         self.received = self.get_clock().now()
         if self.timed_out:
             self.log.basic("Virtual target back")
             self.timed_out = False
+
+        if self.paused:
+            return
 
         target = Target(msg.theta, msg.distance, msg.status)
         linear, angular = self.controller.compute(target)

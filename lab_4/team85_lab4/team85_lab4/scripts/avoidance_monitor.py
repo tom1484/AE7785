@@ -20,12 +20,13 @@ Subscribes:
       Drawn faintly for context.
     /pause
       std_msgs/msg/Bool (transient local)
-      Whether go_to_goal is paused, from any publisher.
+      Whether low_level_controller is paused, from any publisher.
 
 Publishes:
     /pause
       std_msgs/msg/Bool (transient local)
-      Toggled with the space key: true pauses go_to_goal, false resumes it.
+      Toggled with the space key: true pauses low_level_controller, false
+      resumes it.
 
 Debug tool: draws what obstacle_state decides on, in the robot frame: the
 path zone (along the goal direction) and avoid distance, the obstacle point with its normal (white), the
@@ -34,7 +35,8 @@ wall direction (magenta) while avoiding, and go_to_goal's virtual target
 at the signed virtual distance (behind the robot when backing up). A panel shows the state, each avoidance
 criterion with its value and threshold (green: holds, red: fails), and the
 virtual target with its steering terms.
-Press space to pause / resume go_to_goal (the robot stops while paused).
+Press space to pause / resume the robot (low_level_controller stops it,
+while go_to_goal keeps planning, so the virtual target is still drawn).
 Press 'q' / Esc, close the window, or Ctrl+C to quit.
 """
 
@@ -95,7 +97,7 @@ DIM_COLOR = (150, 150, 150)
 QUIT_KEYS = (ord("q"), 27)  # 'q' and Esc
 PAUSE_KEY = ord(" ")
 
-# Same as go_to_goal: the last value is kept for late subscribers
+# Same as low_level_controller: the last value is kept for late subscribers
 PAUSE_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
