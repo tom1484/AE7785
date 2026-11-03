@@ -1,0 +1,12 @@
+# Parameters for waypoint_navigator (launch/robot.launch.py).
+#
+# Nav2 parameters are not set here. Tune them in
+# turtlebot3_recovery_lab/config/nav2_params.yaml, as the lab requires.
+#
+# Units: meters and radians. Write floats with a decimal point (e.g. 2.0),
+# otherwise ROS rejects them as integers.
+
+waypoint_navigator:
+  ros__parameters:
+    # TODO: add the navigator's parameters.
+    use_sim_time: false

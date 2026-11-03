@@ -1,0 +1,1 @@
+# Goal points for grading day, one "x y" per line (m, map frame).
