@@ -2,16 +2,21 @@
 
 import math
 import os
+import threading
+import time
 
 import rclpy
 import yaml
-from rclpy.executors import ExternalShutdownException
+from rclpy.action import ActionClient
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 from action_msgs.msg import GoalStatus, GoalStatusArray
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PoseWithCovarianceStamped
+from nav2_msgs.action import ComputePathToPose
 
 from turtlebot3_msgs.srv import Sound
 from turtlebot3_recovery_lab.srv import DivertRobot
@@ -42,6 +47,22 @@ class StudentRecoveryServer(Node):
         # Sound played once a recovery waypoint has been found. Must differ
         # from SOUND_ERROR, which is played when recovery starts.
         self.success_sound = self.declare_parameter('success_sound', 1).value
+
+        # Path-aware selection: plan to candidates with Nav2's planner and
+        # pick the shortest real path, not the nearest straight-line point.
+        # Must match planner_id in the behavior tree.
+        self.planner_id = self.declare_parameter('planner_id', 'GridBased').value
+        # Max time for one plan, and for planning all candidates (seconds).
+        # Keep plan_budget well under server_timeout of BeepAndDivertBridge
+        # in the behavior tree (5 s), or the BT gives up on /divert_robot.
+        self.plan_timeout = self.declare_parameter('plan_timeout', 1.0).value
+        self.plan_budget = self.declare_parameter('plan_budget', 3.0).value
+        # A path must end this close to the candidate to count as reaching it.
+        # NavFn plans to the nearest reachable point within its tolerance
+        # (0.5 m), so a path can "succeed" without reaching the candidate.
+        self.reach_tolerance = self.declare_parameter(
+            'reach_tolerance', 0.25
+        ).value
 
         self.frame_id, self.min_distance, self.candidates = (
             self.load_candidates(candidates_file)
@@ -88,11 +109,25 @@ class StudentRecoveryServer(Node):
             latched
         )
 
+        # The recovery callback waits for planner results, so it and the
+        # planner client go in a reentrant group, and main() uses a
+        # multithreaded executor. With one thread, waiting would block the
+        # thread that delivers those results.
+        self.planning_group = ReentrantCallbackGroup()
+
+        self.planner_client = ActionClient(
+            self,
+            ComputePathToPose,
+            '/compute_path_to_pose',
+            callback_group=self.planning_group
+        )
+
         # Recovery service called by the C++ Behavior Tree bridge
         self.srv = self.create_service(
             DivertRobot,
             '/divert_robot',
-            self.handle_recovery
+            self.handle_recovery,
+            callback_group=self.planning_group
         )
 
         self.get_logger().info(
@@ -217,7 +252,11 @@ class StudentRecoveryServer(Node):
             self.failed.clear()
 
     def choose_candidate(self):
-        """Return the index of the best candidate, or None if none is usable."""
+        """Return the index of the best candidate, or None if none is usable.
+
+        Best = shortest planned path from the robot. Candidates that failed
+        this goal, or are closer than min_distance, are skipped.
+        """
 
         usable = [
             i for i in range(len(self.candidates)) if i not in self.failed
@@ -233,11 +272,100 @@ class StudentRecoveryServer(Node):
         def distance(i):
             return math.dist(self.robot_xy, self.candidates[i])
 
-        far_enough = [i for i in usable if distance(i) >= self.min_distance]
+        # Nearest first, so the search below can stop early
+        far_enough = sorted(
+            (i for i in usable if distance(i) >= self.min_distance),
+            key=distance
+        )
         if not far_enough:
             return None
 
-        return min(far_enough, key=distance)
+        if not self.planner_client.server_is_ready():
+            self.get_logger().warn(
+                'Planner not available; using the nearest candidate in a '
+                'straight line'
+            )
+            return far_enough[0]
+
+        best, best_length = None, math.inf
+        start = time.monotonic()
+
+        for i in far_enough:
+            # A path is never shorter than the straight line, so no
+            # remaining candidate can beat the best path found so far.
+            if distance(i) >= best_length:
+                break
+            if time.monotonic() - start > self.plan_budget:
+                self.get_logger().warn('Planning budget used up')
+                break
+
+            length = self.path_length(i)
+            x, y = self.candidates[i]
+            if length is None:
+                self.get_logger().info(
+                    f'  candidate {i} ({x:.2f}, {y:.2f}): unreachable'
+                )
+                continue
+
+            self.get_logger().info(
+                f'  candidate {i} ({x:.2f}, {y:.2f}): path {length:.2f} m '
+                f'(straight line {distance(i):.2f} m)'
+            )
+            if length < best_length:
+                best, best_length = i, length
+
+        return best
+
+    def wait_for(self, future, timeout):
+        """Block until the future is done; False on timeout."""
+        if future.done():
+            return True
+        done = threading.Event()
+        future.add_done_callback(lambda _: done.set())
+        return done.wait(timeout) or future.done()
+
+    def path_length(self, index):
+        """Length of the planned path to a candidate, or None if unreachable."""
+
+        x, y = self.candidates[index]
+        goal = ComputePathToPose.Goal()
+        goal.goal.header.frame_id = self.frame_id
+        goal.goal.header.stamp = self.get_clock().now().to_msg()
+        goal.goal.pose.position.x = x
+        goal.goal.pose.position.y = y
+        goal.goal.pose.orientation.w = 1.0
+        goal.planner_id = self.planner_id
+        goal.use_start = False  # plan from the robot's current pose
+
+        send_future = self.planner_client.send_goal_async(goal)
+        if not self.wait_for(send_future, self.plan_timeout):
+            return None
+        handle = send_future.result()
+        if not handle.accepted:
+            return None
+
+        result_future = handle.get_result_async()
+        if not self.wait_for(result_future, self.plan_timeout):
+            handle.cancel_goal_async()
+            return None
+
+        result = result_future.result()
+        poses = result.result.path.poses
+        if result.status != GoalStatus.STATUS_SUCCEEDED or not poses:
+            return None
+
+        # NavFn may stop short of an unreachable goal (its tolerance)
+        end = poses[-1].pose.position
+        if math.dist((end.x, end.y), (x, y)) > self.reach_tolerance:
+            return None
+
+        return sum(
+            math.dist(
+                (a.pose.position.x, a.pose.position.y),
+                (b.pose.position.x, b.pose.position.y)
+            )
+            for a, b in zip(poses, poses[1:])
+        )
 
     def handle_recovery(self, request, response):
         """
@@ -263,8 +391,8 @@ class StudentRecoveryServer(Node):
         # STEP 2: Compute recovery waypoint
         # --------------------------------------------------
 
-        # Nearest candidate to the robot that is at least min_distance away
-        # and hasn't already failed during this goal.
+        # Candidate with the shortest planned path from the robot, at least
+        # min_distance away, that hasn't already failed during this goal.
         self.update_failed_candidates()
         index = self.choose_candidate()
 
@@ -314,8 +442,12 @@ def main(args=None):
 
     node = StudentRecoveryServer()
 
+    # Multithreaded so the recovery callback can wait for planner results
+    executor = MultiThreadedExecutor()
+    executor.add_node(node)
+
     try:
-        rclpy.spin(node)
+        executor.spin()
 
     except (KeyboardInterrupt, ExternalShutdownException):
         pass

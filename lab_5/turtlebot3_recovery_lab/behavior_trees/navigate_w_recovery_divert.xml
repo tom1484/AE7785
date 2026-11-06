@@ -32,8 +32,12 @@
           service_name="/local_costmap/clear_entirely_local_costmap"/>
 
         <!-- Request diversion waypoint from Python service -->
+        <!-- server_timeout (ms): recovery_student.py plans paths to the
+             candidates before answering, which takes longer than the
+             default_server_timeout (200 ms) in nav2_params.yaml. -->
         <BeepAndDivertBridge
-          recovery_pose="{recovery_pose}"/>
+          recovery_pose="{recovery_pose}"
+          server_timeout="5000"/>
 
         <!-- Plan to diversion waypoint, not original goal -->
         <ComputePathToPose
