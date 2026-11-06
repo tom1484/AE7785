@@ -57,7 +57,10 @@ bt_navigator:
     # default_bt_xml_filename: "$(find-pkg-share turtlebot3_recovery_lab)/behavior_trees/navigate_w_recovery_divert.xml"
     default_nav_to_pose_bt_xml: "$(find-pkg-share turtlebot3_recovery_lab)/behavior_trees/navigate_w_recovery_divert.xml"
     bt_loop_duration: 10
-    default_server_timeout: 20
+    # Was 20 ms. Under load (Gazebo + Nav2 on a laptop) planner and costmap
+    # calls missed it, so the recovery branch failed before calling
+    # /divert_robot and goals aborted. 200 ms only delays giving up.
+    default_server_timeout: 200
     enable_groot_monitoring: True
     groot_zmq_publisher_port: 1666
     groot_zmq_server_port: 1667
@@ -123,8 +126,38 @@ controller_server:
       xy_goal_tolerance: 0.25
       yaw_goal_tolerance: 0.25
 
-    # DWB parameters
+    # Regulated Pure Pursuit, as the handout suggests for the maze. The
+    # behavior tree uses controller_id="FollowPath", so this is the active one.
+    # It turns in place toward the path first, which DWB couldn't manage in
+    # the maze's small rooms ("Failed to make progress").
     FollowPath:
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      desired_linear_vel: 0.2              # burger max is 0.22 m/s
+      lookahead_dist: 0.4
+      min_lookahead_dist: 0.25
+      max_lookahead_dist: 0.6
+      lookahead_time: 1.5
+      use_velocity_scaled_lookahead_dist: False
+      rotate_to_heading_angular_vel: 1.0
+      use_rotate_to_heading: True          # turn in place when facing away
+      rotate_to_heading_min_angle: 0.785   # 45 degrees
+      max_angular_accel: 3.2
+      allow_reversing: False
+      transform_tolerance: 0.2
+      min_approach_linear_velocity: 0.05
+      approach_velocity_scaling_dist: 0.6
+      use_collision_detection: True
+      max_allowed_time_to_collision_up_to_carrot: 1.0
+      use_regulated_linear_velocity_scaling: True   # slow down in tight turns
+      use_cost_regulated_linear_velocity_scaling: False
+      regulated_linear_scaling_min_radius: 0.9
+      regulated_linear_scaling_min_speed: 0.25
+      max_robot_pose_search_dist: 10.0
+      use_interpolation: True
+
+    # Previous controller (DWB), unused. To switch back, rename this block to
+    # FollowPath and the one above to something else.
+    FollowPathDWB:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: True
       min_vel_x: 0.0

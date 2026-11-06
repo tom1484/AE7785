@@ -1,0 +1,27 @@
+# Recovery waypoint candidates for recovery_student.py, in the map frame
+# (meters). Recorded with RViz "Publish Point" on /clicked_point.
+#
+# On each recovery, the node picks the nearest candidate to the robot's
+# /amcl_pose that is at least min_distance away and hasn't already failed for
+# the current goal. Rebuild after editing (colcon build), or pass another file
+# with: --ros-args -p candidates_file:=/path/to/file.yaml
+
+frame_id: map
+
+# Skip candidates closer than this to the robot (meters). The robot is stuck
+# there, so diverting to a point it's already at doesn't help.
+min_distance: 0.3
+
+candidates:
+  - {x: 0.237, y: 0.085}
+  - {x: 0.308, y: 0.538}
+  - {x: 0.745, y: 0.529}
+  - {x: 0.697, y: 0.084}
+  - {x: 1.289, y: 0.093}
+  - {x: 1.298, y: 0.561}
+  - {x: 1.899, y: 0.507}
+  - {x: 2.344, y: 0.475}
+  - {x: 2.313, y: -0.009}
+  - {x: 2.960, y: 0.492}
+  - {x: 3.158, y: -0.222}
+  - {x: 2.706, y: -0.752}
