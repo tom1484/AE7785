@@ -2,11 +2,18 @@
 #
 # Nav2 parameters are not set here. Tune them in
 # turtlebot3_recovery_lab/config/nav2_params.yaml, as the lab requires.
+# The waypoints file and use_sim_time are launch arguments instead.
 #
-# Units: meters and radians. Write floats with a decimal point (e.g. 2.0),
-# otherwise ROS rejects them as integers.
+# Units: meters, seconds and radians. Write floats with a decimal point
+# (e.g. 2.0), otherwise ROS rejects them as integers.
 
 waypoint_navigator:
   ros__parameters:
-    # TODO: add the navigator's parameters.
-    use_sim_time: false
+    frame_id: map            # Frame of the waypoints
+    hold_time: 2.0           # Pause at each reached waypoint (s)
+    retries: 1               # Resends of a waypoint after Nav2 aborts it,
+                             # before skipping to the next one
+    wait_for_initial_pose: true  # Wait for /amcl_pose (initial pose set)
+    reject_timeout: 60.0     # Resend goals Nav2 rejects (not active yet)
+                             # for this long before giving up (s)
+    response_timeout: 10.0   # Resend a goal Nav2 never answers (s)

@@ -1,0 +1,98 @@
+"""
+Navigation in simulation: Gazebo with the 7785 maze + navigation.launch.py
+with the sim map, the sim recovery candidates, and the initial pose set to the
+spawn point automatically.
+
+Run it through scripts/launch/navigation.zsh --sim, which sets the sim ROS domain first.
+
+Usage:
+    ros2 launch team85_lab5 navigation_sim.launch.py
+    ros2 launch team85_lab5 navigation_sim.launch.py waypoints:=true
+    ros2 launch team85_lab5 navigation_sim.launch.py gui:=false   # no Gazebo window
+"""
+
+import os
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    SetEnvironmentVariable,
+    TimerAction,
+)
+from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+
+
+def generate_launch_description():
+    lab5 = get_package_share_directory("team85_lab5")
+    recovery = get_package_share_directory("turtlebot3_recovery_lab")
+
+    return LaunchDescription([
+        DeclareLaunchArgument("rviz", default_value="true"),
+        DeclareLaunchArgument("waypoints", default_value="false"),
+        DeclareLaunchArgument(
+            "waypoints_file", default_value=os.path.join(lab5, "wayPoints_sim.txt"),
+        ),
+        DeclareLaunchArgument(
+            "gui", default_value="true",
+            description="Show the Gazebo window (false: lighter on the CPU)",
+        ),
+        SetEnvironmentVariable("TURTLEBOT3_MODEL", "burger"),
+        *maze(LaunchConfiguration("gui")),
+        # Give Gazebo time to load the maze and start publishing /clock
+        TimerAction(period=10.0, actions=[
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(lab5, "launch", "navigation.launch.py")
+                ),
+                launch_arguments={
+                    "use_sim_time": "true",
+                    "map": os.path.join(lab5, "maps", "map_sim.yaml"),
+                    "candidates_file": os.path.join(
+                        recovery, "config", "recovery_candidates_sim.yaml"
+                    ),
+                    # map_sim was built from the spawn point
+                    "set_initial_pose": "true",
+                    "initial_x": "0.0",
+                    "initial_y": "0.0",
+                    "initial_yaw": "0.0",
+                    "rviz": LaunchConfiguration("rviz"),
+                    "waypoints": LaunchConfiguration("waypoints"),
+                    "waypoints_file": LaunchConfiguration("waypoints_file"),
+                }.items(),
+            ),
+        ]),
+    ])
+
+
+def maze(gui):
+    """Gazebo with the 7785 maze, as turtlebot3_gazebo's 7785_maze.launch.py,
+    but with the Gazebo window (gzclient) optional: it's the heaviest part,
+    and an overloaded Mac can make Nav2 miss heartbeats and reset itself."""
+    gazebo_ros = get_package_share_directory("gazebo_ros")
+    tb3_gazebo = get_package_share_directory("turtlebot3_gazebo")
+    return [
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(gazebo_ros, "launch", "gzserver.launch.py")
+            ),
+            launch_arguments={
+                "world": os.path.join(tb3_gazebo, "worlds", "7785_maze.world")
+            }.items(),
+        ),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(gazebo_ros, "launch", "gzclient.launch.py")
+            ),
+            condition=IfCondition(gui),
+        ),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(tb3_gazebo, "launch", "robot_state_publisher.launch.py")
+            ),
+            launch_arguments={"use_sim_time": "true"}.items(),
+        ),
+    ]

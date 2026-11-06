@@ -1,7 +1,13 @@
 #!/bin/zsh
-# macOS strips DYLD_LIBRARY_PATH when running /bin/zsh (SIP), so Nav2 can't
-# find the workspace's BT plugin unless the setup is sourced again in here.
-# Run this from a terminal where `conda activate humble` is already done.
-source $HOME/Workspace/turtlebot3_ws/install/setup.zsh
+# Save the map being built (Cartographer running) as maps/map.pgm + map.yaml.
+# --sim: simulator, saved as maps/map_sim.* so the real map isn't overwritten.
+# Rebuild afterwards (colcon build --packages-select team85_lab5) so the
+# launch files find the new map.
+source ${0:A:h}/common.zsh "$@"
 
-ros2 run nav2_map_server map_saver_cli -f ./src/team85_lab5/maps/map
+if (( SIM )); then
+  ros2 run nav2_map_server map_saver_cli -f $WS/src/team85_lab5/maps/map_sim \
+    --ros-args -p use_sim_time:=true
+else
+  ros2 run nav2_map_server map_saver_cli -f $WS/src/team85_lab5/maps/map
+fi

@@ -1,7 +1,10 @@
 #!/bin/zsh
-# macOS strips DYLD_LIBRARY_PATH when running /bin/zsh (SIP), so Nav2 can't
-# find the workspace's BT plugin unless the setup is sourced again in here.
-# Run this from a terminal where `conda activate humble` is already done.
-source $HOME/Workspace/turtlebot3_ws/install/setup.zsh
+# Cartographer + RViz for mapping (turtlebot3_cartographer).
+# --sim: sim time; start after gazebo_sim.zsh. (mapping.zsh does both.)
+source ${0:A:h}/common.zsh "$@"
 
-ros2 launch turtlebot3_cartographer cartographer.launch.py
+if (( SIM )); then
+  ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=True "${ARGS[@]}"
+else
+  ros2 launch turtlebot3_cartographer cartographer.launch.py "${ARGS[@]}"
+fi

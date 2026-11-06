@@ -11,7 +11,7 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
-        ('share/' + package_name, ['package.xml', 'wayPoints.txt']),
+        ('share/' + package_name, ['package.xml', 'wayPoints.txt', 'wayPoints_sim.txt']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
         ('share/' + package_name + '/maps', glob('maps/*.yaml') + glob('maps/*.pgm')),
@@ -30,6 +30,7 @@ setup(
     entry_points={
         'console_scripts': [
             'waypoint_navigator = team85_lab5.scripts.waypoint_navigator:main',
+            'set_initial_pose = team85_lab5.scripts.set_initial_pose:main',
         ],
     },
 )

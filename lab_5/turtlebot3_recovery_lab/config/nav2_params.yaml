@@ -116,15 +116,17 @@ controller_server:
 
     # Progress checker parameters
     progress_checker:
-      plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.5
+      plugin: "nav2_controller::PoseProgressChecker"
+      required_movement_radius: 0.3
+      required_movement_angle: 0.5
       movement_time_allowance: 10.0
 
+    # Position only: the lab's waypoints are "x y", so the robot doesn't turn
+    # in place at the goal to match a heading (that rotation also used to trip
+    # the progress checker, which counts only distance, not turning).
     general_goal_checker:
-      stateful: True
-      plugin: "nav2_controller::SimpleGoalChecker"
+      plugin: "nav2_controller::PositionGoalChecker"
       xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 0.25
 
     # Regulated Pure Pursuit, as the handout suggests for the maze. The
     # behavior tree uses controller_id="FollowPath", so this is the active one.
@@ -134,24 +136,24 @@ controller_server:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
       desired_linear_vel: 0.2              # burger max is 0.22 m/s
       lookahead_dist: 0.4
-      min_lookahead_dist: 0.25
+      min_lookahead_dist: 0.3
       max_lookahead_dist: 0.6
       lookahead_time: 1.5
-      use_velocity_scaled_lookahead_dist: False
-      rotate_to_heading_angular_vel: 1.0
+      use_velocity_scaled_lookahead_dist: True
+      rotate_to_heading_angular_vel: 1.5
       use_rotate_to_heading: True          # turn in place when facing away
-      rotate_to_heading_min_angle: 0.785   # 45 degrees
+      rotate_to_heading_min_angle: 0.45   # about 26 degrees
       max_angular_accel: 3.2
       allow_reversing: False
       transform_tolerance: 0.2
       min_approach_linear_velocity: 0.05
       approach_velocity_scaling_dist: 0.6
       use_collision_detection: True
-      max_allowed_time_to_collision_up_to_carrot: 1.0
+      max_allowed_time_to_collision_up_to_carrot: 0.5
       use_regulated_linear_velocity_scaling: True   # slow down in tight turns
       use_cost_regulated_linear_velocity_scaling: False
       regulated_linear_scaling_min_radius: 0.9
-      regulated_linear_scaling_min_speed: 0.25
+      regulated_linear_scaling_min_speed: 0.08
       max_robot_pose_search_dist: 10.0
       use_interpolation: True
 
@@ -219,7 +221,7 @@ local_costmap:
       plugins: ["obstacle_layer", "voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 1.0
+        inflation_radius: 0.2
         cost_scaling_factor: 3.0
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -313,7 +315,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        inflation_radius: 0.2
       always_send_full_costmap: True
   global_costmap_client:
     ros__parameters:

@@ -1,6 +1,6 @@
 # Recovery waypoint candidates for the Gazebo 7785 maze, for map_sim.yaml.
 # Same format as recovery_candidates.yaml (the real lab map); use this file
-# only in simulation (recovery_sim.zsh passes it with -p candidates_file:=...).
+# only in simulation (recovery.zsh --sim passes it with -p candidates_file:=...).
 #
 # Picked by hand in RViz with "Publish Point" on map_sim (2026-11-05).
 # Each is in free space with 0.40-0.50 m clearance from walls.

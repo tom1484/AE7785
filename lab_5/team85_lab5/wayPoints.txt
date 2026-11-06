@@ -1,1 +1,11 @@
-# Goal points for grading day, one "x y" per line (m, map frame).
+# Goal points for grading day, in the map frame (m): the frame of maps/map.yaml,
+# whose origin (0, 0) is where the robot was when Cartographer started mapping,
+# with +x the direction it faced then.
+# One waypoint per line: "x y" (an optional third value, yaw in radians, is
+# accepted but ignored: the goal checker checks position only).
+# Get coordinates with RViz "Publish Point" (ros2 topic echo /clicked_point).
+# The installed copy links to this file, so edits apply without a rebuild.
+# Run: scripts/launch/waypoints.zsh, or scripts/launch/navigation.zsh waypoints:=true
+3.029 -0.624
+0.484  0.375
+2.142 -0.121

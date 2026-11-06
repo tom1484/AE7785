@@ -1,0 +1,5 @@
+# Test waypoints for the Gazebo 7785 maze (map_sim.yaml), map frame (m).
+# Same format as wayPoints.txt. Used with --sim (scripts/launch/waypoints.zsh, navigation.zsh).
+1.82 1.76
+4.46 1.77
+1.79 -0.02

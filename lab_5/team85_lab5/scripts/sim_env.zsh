@@ -1,4 +1,4 @@
-# Shared setup for the *_sim.zsh scripts. Sourced, not run.
+# Simulator environment, sourced by common.zsh for --sim and by the sim-only scripts.
 # macOS strips DYLD_LIBRARY_PATH when running /bin/zsh (SIP), so the workspace
 # setup is sourced again here.
 # Run the scripts from a terminal where `conda activate humble` is already done.

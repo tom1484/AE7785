@@ -1,10 +1,17 @@
 #!/bin/zsh
 # Recovery server (/divert_robot). Start this BEFORE nav_recovery.zsh, or
 # bt_navigator crashes when it can't find the service.
-# macOS strips DYLD_LIBRARY_PATH when running /bin/zsh (SIP), so the setup is
-# sourced again in here; the node is started with `python` for the same reason.
-# Run this from a terminal where `conda activate humble` is already done.
-# Extra arguments are passed to the node, e.g. --ros-args -p use_sim_time:=true
-source $HOME/Workspace/turtlebot3_ws/install/setup.zsh
+# --sim: sim time and the maze candidates (recovery_candidates_sim.yaml).
+#   "Cannot beep: /sound service unavailable" is normal there: no buzzer.
+# Extra arguments are passed to the node, e.g. --ros-args -p candidates_file:=...
+# Started with `python`: a #!/usr/bin/env shebang would drop DYLD_LIBRARY_PATH.
+source ${0:A:h}/common.zsh "$@"
 
-python $(ros2 pkg prefix turtlebot3_recovery_lab)/lib/turtlebot3_recovery_lab/recovery_student.py "$@"
+node=$(ros2 pkg prefix turtlebot3_recovery_lab)/lib/turtlebot3_recovery_lab/recovery_student.py
+if (( SIM )); then
+  python $node --ros-args -p use_sim_time:=true \
+    -p candidates_file:=$WS/src/turtlebot3_recovery_lab/config/recovery_candidates_sim.yaml \
+    "${ARGS[@]}"
+else
+  python $node "${ARGS[@]}"
+fi
