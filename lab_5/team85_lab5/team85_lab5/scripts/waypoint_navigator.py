@@ -33,11 +33,13 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.signals import SignalHandlerOptions
+from rclpy.time import Time
 
 from action_msgs.msg import GoalStatus
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav2_msgs.action import NavigateToPose
+from tf2_ros import Buffer, TransformException, TransformListener
 
 STATUS_NAMES = {
     GoalStatus.STATUS_SUCCEEDED: 'SUCCEEDED',
@@ -109,6 +111,12 @@ class WaypointNavigator(Node):
         )
 
         self.index = 0          # waypoint being driven to
+        self.end_distances = {}  # waypoint index -> distance at success
+        # Robot pose for the end-of-goal distance: map -> base_link, as Nav2
+        # uses (/amcl_pose only updates after moving 0.25 m, so it lags)
+        self.base_frame = self.declare_parameter('base_frame', 'base_link').value
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
         self.attempt = 0        # resends of the current waypoint
         self.goal_handle = None
         self.goal_start = None
@@ -271,8 +279,11 @@ class WaypointNavigator(Node):
         elapsed = time.monotonic() - self.goal_start
 
         if status == GoalStatus.STATUS_SUCCEEDED:
+            # Nav2 counts a goal reached near the end of its *path*, which
+            # can stop short of the waypoint; log how far it really is.
             self.get_logger().info(
-                f'Waypoint {self.index + 1} reached in {elapsed:.1f} s'
+                f'Waypoint {self.index + 1} reached in {elapsed:.1f} s; '
+                f'{self.distance_text()} from it'
             )
             self.results.append((self.index, name, elapsed))
             # Stay at the waypoint for a moment, then go to the next one
@@ -325,10 +336,29 @@ class WaypointNavigator(Node):
         )
         for index, name, elapsed in self.results:
             x, y, _ = self.waypoints[index]
+            ended = self.end_distances.get(index)
             self.get_logger().info(
                 f'  {index + 1}: ({x:.2f}, {y:.2f}) {name} in {elapsed:.1f} s'
+                + (f', ended {ended} away' if ended else '')
             )
         self.done = True
+
+    def distance_text(self):
+        """Robot-to-waypoint distance as text, also kept for the summary.
+        From TF (frame_id -> base_frame); /amcl_pose if TF isn't available."""
+        x, y, _ = self.waypoints[self.index]
+        try:
+            t = self.tf_buffer.lookup_transform(
+                self.frame_id, self.base_frame, Time()
+            ).transform.translation
+            text = f'{math.dist((t.x, t.y), (x, y)):.2f} m'
+        except TransformException:
+            if self.robot_xy is None:
+                text = 'unknown distance'
+            else:
+                text = f'{math.dist(self.robot_xy, (x, y)):.2f} m (/amcl_pose)'
+        self.end_distances[self.index] = text
+        return text
 
     def cancel_active_goal(self):
         """Stop the robot: cancel the goal Nav2 is executing, if any."""

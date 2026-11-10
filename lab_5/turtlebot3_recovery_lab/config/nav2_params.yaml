@@ -126,7 +126,7 @@ controller_server:
     # the progress checker, which counts only distance, not turning).
     general_goal_checker:
       plugin: "nav2_controller::PositionGoalChecker"
-      xy_goal_tolerance: 0.25
+      xy_goal_tolerance: 0.15
 
     # Regulated Pure Pursuit, as the handout suggests for the maze. The
     # behavior tree uses controller_id="FollowPath", so this is the active one.
@@ -221,7 +221,7 @@ local_costmap:
       plugins: ["obstacle_layer", "voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.2
+        inflation_radius: 0.15
         cost_scaling_factor: 3.0
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -314,7 +314,7 @@ global_costmap:
         map_subscribe_transient_local: True
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
+        cost_scaling_factor: 4.0
         inflation_radius: 0.2
       always_send_full_costmap: True
   global_costmap_client:
@@ -344,7 +344,7 @@ planner_server:
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_navfn_planner/NavfnPlanner"
-      tolerance: 0.5
+      tolerance: 0.15                      # plan to the nearest free cell within this of a blocked goal (m)
       use_astar: false
       allow_unknown: true
 

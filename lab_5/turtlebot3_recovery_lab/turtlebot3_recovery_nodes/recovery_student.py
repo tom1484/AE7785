@@ -12,6 +12,8 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.time import Time
+from tf2_ros import Buffer, TransformException, TransformListener
 
 from action_msgs.msg import GoalStatus, GoalStatusArray
 from ament_index_python.packages import get_package_share_directory
@@ -31,6 +33,13 @@ from turtlebot3_recovery_lab.srv import DivertRobot
 # 5 = BUTTON2
 SOUND_ERROR = 3
 
+# Nav2 goal states after which the goal is over
+GOAL_DONE = (
+    GoalStatus.STATUS_SUCCEEDED,
+    GoalStatus.STATUS_CANCELED,
+    GoalStatus.STATUS_ABORTED,
+)
+
 
 class StudentRecoveryServer(Node):
     def __init__(self):
@@ -44,9 +53,38 @@ class StudentRecoveryServer(Node):
         candidates_file = self.declare_parameter(
             'candidates_file', default_file
         ).value
-        # Sound played once a recovery waypoint has been found. Must differ
-        # from SOUND_ERROR, which is played when recovery starts.
+        # Sound played when recovery succeeds. Must differ from SOUND_ERROR,
+        # which is played when recovery starts.
         self.success_sound = self.declare_parameter('success_sound', 1).value
+        # When to play it:
+        #   'arrival' - once the robot reaches the recovery waypoint; no beep
+        #               if the recovery is abandoned on the way (another
+        #               recovery starts, the Nav2 goal ends, or arrival_timeout)
+        #   'chosen'  - as soon as a recovery waypoint is chosen
+        self.success_beep_on = self.declare_parameter(
+            'success_beep_on', 'arrival'
+        ).value
+        if self.success_beep_on not in ('arrival', 'chosen'):
+            raise ValueError(
+                f"success_beep_on must be 'arrival' or 'chosen', "
+                f"not {self.success_beep_on!r}"
+            )
+        # Reached = within this of the waypoint (m). A bit above Nav2's
+        # xy_goal_tolerance (0.15), where the controller stops.
+        self.arrival_tolerance = self.declare_parameter(
+            'arrival_tolerance', 0.25
+        ).value
+        # Give up waiting for arrival after this long (s)
+        self.arrival_timeout = self.declare_parameter(
+            'arrival_timeout', 60.0
+        ).value
+        self.base_frame = self.declare_parameter('base_frame', 'base_link').value
+        # The buzzer plays one sound at a time: a new request cuts off the one
+        # playing, and each sound lasts almost 2 s. Every beep starts at least
+        # this long after the previous one (s); a later one is delayed.
+        self.min_beep_gap = self.declare_parameter('min_beep_gap', 2.5).value
+        self.next_beep_time = -math.inf  # earliest time.monotonic() for a beep
+        self.beep_lock = threading.Lock()
 
         # Path-aware selection: plan to candidates with Nav2's planner and
         # pick the shortest real path, not the nearest straight-line point.
@@ -68,6 +106,14 @@ class StudentRecoveryServer(Node):
             self.load_candidates(candidates_file)
         )
 
+        # A candidate this close is "reached" before the robot moves, and the
+        # diversion does nothing
+        if self.min_distance <= self.arrival_tolerance + 0.1:
+            self.get_logger().warn(
+                f'min_distance ({self.min_distance} m) should be well above '
+                f'arrival_tolerance ({self.arrival_tolerance} m)'
+            )
+
         # Latest robot position (x, y) in the map frame, from AMCL
         self.robot_xy = None
 
@@ -80,6 +126,19 @@ class StudentRecoveryServer(Node):
 
         # Candidates that failed during the current goal
         self.failed = set()
+
+        # Recovery waiting for the robot to arrive, for the success beep:
+        # dict(goal_id, index, x, y, start) or None
+        self.pending_arrival = None
+        self.pending_lock = threading.Lock()
+        # Latest state of each Nav2 goal, by goal ID
+        self.goal_states = {}
+
+        # Robot position for the arrival check: map -> base_link from TF
+        # (/amcl_pose only updates after the robot moves 0.25 m, so it lags)
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.create_timer(0.1, self.check_arrival)
 
         # TurtleBot3 OpenCR buzzer service client
         self.sound_client = self.create_client(
@@ -177,9 +236,85 @@ class StudentRecoveryServer(Node):
         ]
         if active:
             self.active_goal_id = bytes(active[-1].goal_info.goal_id.uuid).hex()
+        self.goal_states = {
+            bytes(s.goal_info.goal_id.uuid).hex(): s.status
+            for s in msg.status_list
+        }
+
+    def robot_position(self):
+        """Robot (x, y) in the map frame: TF, else the last /amcl_pose."""
+        try:
+            t = self.tf_buffer.lookup_transform(
+                self.frame_id, self.base_frame, Time()
+            ).transform.translation
+            return (t.x, t.y)
+        except TransformException:
+            return self.robot_xy
+
+    def check_arrival(self):
+        """Success beep once the robot reaches the recovery waypoint."""
+        with self.pending_lock:
+            pending = self.pending_arrival
+            if pending is None:
+                return
+
+            name = f"candidate {pending['index']}"
+            state = self.goal_states.get(pending['goal_id'])
+            if state in GOAL_DONE:
+                self.pending_arrival = None
+                self.get_logger().warn(
+                    f'Recovery abandoned: the Nav2 goal ended before the '
+                    f'robot reached {name}; no success beep'
+                )
+                return
+            if time.monotonic() - pending['start'] > self.arrival_timeout:
+                self.pending_arrival = None
+                self.get_logger().warn(
+                    f'Recovery abandoned: {name} not reached within '
+                    f'{self.arrival_timeout:.0f} s; no success beep'
+                )
+                return
+
+            position = self.robot_position()
+            if position is None:
+                return
+            distance = math.dist(position, (pending['x'], pending['y']))
+            if distance > self.arrival_tolerance:
+                return
+
+            self.pending_arrival = None
+
+        self.get_logger().info(
+            f'Reached recovery waypoint ({name}, {distance:.2f} m away); '
+            f'recovery successful'
+        )
+        self.beep(self.success_sound)
 
     def beep(self, value=SOUND_ERROR):
-        """Trigger the TurtleBot3 buzzer asynchronously."""
+        """Trigger the TurtleBot3 buzzer, min_beep_gap after the last beep."""
+
+        with self.beep_lock:
+            now = time.monotonic()
+            start = max(now, self.next_beep_time)
+            self.next_beep_time = start + self.min_beep_gap
+
+        if start > now:
+            # Let the sound playing now finish first
+            def fire():
+                timer.cancel()
+                self.destroy_timer(timer)
+                self.send_beep(value)
+
+            timer = self.create_timer(start - now, fire)
+            self.get_logger().info(
+                f'Sound {value} in {start - now:.1f} s, after the one playing'
+            )
+            return
+
+        self.send_beep(value)
+
+    def send_beep(self, value):
+        """Send the sound request to the TurtleBot3 buzzer asynchronously."""
 
         if not self.sound_client.service_is_ready():
             self.get_logger().warn(
@@ -262,15 +397,18 @@ class StudentRecoveryServer(Node):
             i for i in range(len(self.candidates)) if i not in self.failed
         ]
 
-        if self.robot_xy is None:
+        # Live position from TF: /amcl_pose can lag by 0.25 m, enough to
+        # pick a candidate the robot is already standing on
+        robot = self.robot_position()
+        if robot is None:
             self.get_logger().warn(
-                'No /amcl_pose received yet; using the first usable '
+                'Robot position unknown; using the first usable '
                 'candidate in the file'
             )
             return usable[0] if usable else None
 
         def distance(i):
-            return math.dist(self.robot_xy, self.candidates[i])
+            return math.dist(robot, self.candidates[i])
 
         # Nearest first, so the search below can stop early
         far_enough = sorted(
@@ -374,7 +512,9 @@ class StudentRecoveryServer(Node):
         1. Trigger the TurtleBot3 buzzer.
         2. Compute a recovery waypoint.
         3. Return the waypoint to the C++ BT bridge if one is available.
-        4. Trigger a different Turtlebot3 buzzer if successful.
+        4. Trigger a different Turtlebot3 buzzer if successful: once the
+           robot reaches the waypoint (success_beep_on: arrival, default),
+           or right away (success_beep_on: chosen).
         """
 
         self.get_logger().warn(
@@ -386,6 +526,16 @@ class StudentRecoveryServer(Node):
         # --------------------------------------------------
 
         self.beep(SOUND_ERROR)
+
+        # A new recovery replaces one still on its way to its waypoint
+        with self.pending_lock:
+            if self.pending_arrival is not None:
+                self.get_logger().warn(
+                    f"Recovery abandoned: candidate "
+                    f"{self.pending_arrival['index']} not reached before "
+                    f"this recovery; no success beep"
+                )
+                self.pending_arrival = None
 
         # --------------------------------------------------
         # STEP 2: Compute recovery waypoint
@@ -409,7 +559,7 @@ class StudentRecoveryServer(Node):
         if index is None:
             response.success = False
             self.get_logger().error(
-                f'No usable recovery candidate (robot at {self.robot_xy}, '
+                f'No usable recovery candidate (robot at {self.robot_position()}, '
                 f'{len(self.failed)} of {len(self.candidates)} excluded)'
             )
             return response
@@ -432,7 +582,15 @@ class StudentRecoveryServer(Node):
         # recovery point was found
         # ---------------------------------------------------
 
-        self.beep(self.success_sound)
+        if self.success_beep_on == 'chosen':
+            self.beep(self.success_sound)
+        else:
+            # Beep later, from check_arrival, once the robot gets there
+            with self.pending_lock:
+                self.pending_arrival = dict(
+                    goal_id=self.active_goal_id, index=index,
+                    x=recovery_x, y=recovery_y, start=time.monotonic(),
+                )
 
         return response
 

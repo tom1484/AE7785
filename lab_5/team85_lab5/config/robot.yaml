@@ -10,6 +10,7 @@
 waypoint_navigator:
   ros__parameters:
     frame_id: map            # Frame of the waypoints
+    base_frame: base_link    # Robot frame, for the distance logged at each waypoint
     hold_time: 2.0           # Pause at each reached waypoint (s)
     retries: 1               # Resends of a waypoint after Nav2 aborts it,
                              # before skipping to the next one
