@@ -6,6 +6,6 @@
 # Get coordinates with RViz "Publish Point" (ros2 topic echo /clicked_point).
 # The installed copy links to this file, so edits apply without a rebuild.
 # Run: scripts/launch/waypoints.zsh, or scripts/launch/navigation.zsh waypoints:=true
-3.029 -0.624
-0.484  0.375
-2.142 -0.121
+0.651 0.352
+2.159 -0.139
+1.967 -0.752

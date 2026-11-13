@@ -40,9 +40,8 @@ RECOVERY = get_package_share_directory("turtlebot3_recovery_lab")
 BRINGUP = os.path.join(
     get_package_share_directory("nav2_bringup"), "launch", "bringup_launch.py"
 )
-RVIZ_CONFIG = os.path.join(
-    get_package_share_directory("turtlebot3_navigation2"), "rviz", "tb3_navigation2.rviz"
-)
+# turtlebot3_navigation2's layout minus the Nav2 plugins that crash RViz on exit
+RVIZ_CONFIG = os.path.join(LAB5, "rviz", "navigation.rviz")
 
 
 def generate_launch_description():
@@ -121,6 +120,7 @@ def launch_setup(context):
             "params_file": arg("nav2_params_file"),
             "use_sim_time": str(use_sim_time),
             "autostart": "true",
+            "use_composition": "False",
         }.items(),
     )
     after_recovery = [nav2]

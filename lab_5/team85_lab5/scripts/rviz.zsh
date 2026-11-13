@@ -4,5 +4,5 @@
 # --sim: simulator, with sim time.
 source ${0:A:h}/common.zsh "$@"
 
-rviz2 -d $(ros2 pkg prefix turtlebot3_navigation2)/share/turtlebot3_navigation2/rviz/tb3_navigation2.rviz \
+rviz2 -d $(ros2 pkg prefix team85_lab5)/share/team85_lab5/rviz/navigation.rviz \
   --ros-args -p use_sim_time:=$( (( SIM )) && echo true || echo false )

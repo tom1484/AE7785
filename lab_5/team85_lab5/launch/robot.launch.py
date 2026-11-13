@@ -1,5 +1,5 @@
 """
-Waypoint navigator. Nav2 and the recovery server are started separately; see INSTRUCTION.md.
+Waypoint navigator. Nav2 and the recovery server are started separately; see README.md.
 
 Usage:
     ros2 launch team85_lab5 robot.launch.py
