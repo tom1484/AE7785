@@ -1,0 +1,46 @@
+# Shared defaults for all YOLOv8-cls experiments.
+# Experiment files in configs/experiments/ set `inherit: base.yaml` and override keys.
+
+data:
+  raw_dirs:                     # relative to repo root; each has labels.txt + NNN.png
+    - data/raw/2025F_imgs
+    - data/raw/2025F_Gimgs
+    - data/raw/2026F_imgs
+  num_classes: 6                # 0 empty wall, 1 left, 2 right, 3 do-not-enter, 4 stop, 5 goal
+  split:
+    strategy: stratified        # stratified | holdout_folder
+    val_ratio: 0.2
+    holdout_folder: data/raw/2026F_imgs   # used when strategy == holdout_folder
+    seed: 0
+
+preprocess:
+  imgsz: 224
+  resize_mode: squash           # squash (no crop) | center_crop (ultralytics default)
+
+train:
+  model: yolov8m-cls.pt         # pretrained ImageNet weights
+  epochs: 50
+  patience: 15
+  batch: 32
+  device: mps                   # Apple M2 GPU; fall back to "cpu" if an op fails
+  workers: 4
+  seed: 0
+  optimizer: auto
+  # Augmentation. fliplr MUST stay 0: a mirrored left arrow is a right arrow.
+  fliplr: 0.0
+  flipud: 0.0
+  degrees: 10.0
+  scale: 0.3
+  translate: 0.1
+  hsv_h: 0.015
+  hsv_s: 0.5
+  hsv_v: 0.4
+  erasing: 0.2
+
+export:
+  format: onnx
+  opset: 12
+  simplify: true
+
+output:
+  root: outputs
