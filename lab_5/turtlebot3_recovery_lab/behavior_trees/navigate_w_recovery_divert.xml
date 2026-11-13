@@ -33,11 +33,13 @@
 
         <!-- Request diversion waypoint from Python service -->
         <!-- server_timeout (ms): recovery_student.py plans paths to the
-             candidates before answering, which takes longer than the
-             default_server_timeout (200 ms) in nav2_params.yaml. -->
+             candidates (up to 3 s) and waits for the activation sound to
+             play (up to 5 s if a sound is already playing) before
+             answering, far longer than the default_server_timeout (200 ms)
+             in nav2_params.yaml. -->
         <BeepAndDivertBridge
           recovery_pose="{recovery_pose}"
-          server_timeout="5000"/>
+          server_timeout="10000"/>
 
         <!-- Plan to diversion waypoint, not original goal -->
         <ComputePathToPose
@@ -49,6 +51,11 @@
         <FollowPath
           path="{recovery_path}"
           controller_id="FollowPath"/>
+
+        <!-- Stay at the recovery waypoint while the success sound plays
+             (recovery_student.py starts it on arrival; it lasts ~2 s).
+             Humble's Wait takes whole seconds. -->
+        <Wait wait_duration="3"/>
 
       </Sequence>
 

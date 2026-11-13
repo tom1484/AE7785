@@ -57,9 +57,11 @@ class StudentRecoveryServer(Node):
         # which is played when recovery starts.
         self.success_sound = self.declare_parameter('success_sound', 1).value
         # When to play it:
-        #   'arrival' - once the robot reaches the recovery waypoint; no beep
-        #               if the recovery is abandoned on the way (another
-        #               recovery starts, the Nav2 goal ends, or arrival_timeout)
+        #   'arrival' - once the robot reaches the recovery waypoint, i.e. the
+        #               behavior tree's FollowPath to it succeeds; no beep if
+        #               the recovery is abandoned on the way (that FollowPath
+        #               fails, another recovery starts, the Nav2 goal ends, or
+        #               arrival_timeout)
         #   'chosen'  - as soon as a recovery waypoint is chosen
         self.success_beep_on = self.declare_parameter(
             'success_beep_on', 'arrival'
@@ -69,11 +71,6 @@ class StudentRecoveryServer(Node):
                 f"success_beep_on must be 'arrival' or 'chosen', "
                 f"not {self.success_beep_on!r}"
             )
-        # Reached = within this of the waypoint (m). A bit above Nav2's
-        # xy_goal_tolerance (0.15), where the controller stops.
-        self.arrival_tolerance = self.declare_parameter(
-            'arrival_tolerance', 0.25
-        ).value
         # Give up waiting for arrival after this long (s)
         self.arrival_timeout = self.declare_parameter(
             'arrival_timeout', 60.0
@@ -84,6 +81,12 @@ class StudentRecoveryServer(Node):
         # this long after the previous one (s); a later one is delayed.
         self.min_beep_gap = self.declare_parameter('min_beep_gap', 2.5).value
         self.next_beep_time = -math.inf  # earliest time.monotonic() for a beep
+        # Keep the robot still until the activation sound has played (the
+        # /divert_robot reply waits). The behavior tree's server_timeout on
+        # BeepAndDivertBridge must cover this plus planning (plan_budget).
+        self.wait_for_activation_beep = self.declare_parameter(
+            'wait_for_activation_beep', True
+        ).value
         self.beep_lock = threading.Lock()
 
         # Path-aware selection: plan to candidates with Nav2's planner and
@@ -106,12 +109,12 @@ class StudentRecoveryServer(Node):
             self.load_candidates(candidates_file)
         )
 
-        # A candidate this close is "reached" before the robot moves, and the
-        # diversion does nothing
-        if self.min_distance <= self.arrival_tolerance + 0.1:
+        # A candidate this close is within Nav2's goal tolerance (0.15 m) of
+        # the robot, and the diversion barely moves it
+        if self.min_distance < 0.3:
             self.get_logger().warn(
-                f'min_distance ({self.min_distance} m) should be well above '
-                f'arrival_tolerance ({self.arrival_tolerance} m)'
+                f'min_distance ({self.min_distance} m) is small: the robot may '
+                f'divert to a point it is almost standing on'
             )
 
         # Latest robot position (x, y) in the map frame, from AMCL
@@ -165,6 +168,16 @@ class StudentRecoveryServer(Node):
             GoalStatusArray,
             '/navigate_to_pose/_action/status',
             self.goal_status_callback,
+            latched
+        )
+
+        # Controller goals: the first FollowPath after a diversion is the
+        # drive to the recovery waypoint; its result says whether it got there
+        self.follow_states = {}
+        self.create_subscription(
+            GoalStatusArray,
+            '/follow_path/_action/status',
+            self.follow_status_callback,
             latched
         )
 
@@ -241,6 +254,12 @@ class StudentRecoveryServer(Node):
             for s in msg.status_list
         }
 
+    def follow_status_callback(self, msg):
+        self.follow_states = {
+            bytes(s.goal_info.goal_id.uuid).hex(): s.status
+            for s in msg.status_list
+        }
+
     def robot_position(self):
         """Robot (x, y) in the map frame: TF, else the last /amcl_pose."""
         try:
@@ -252,7 +271,7 @@ class StudentRecoveryServer(Node):
             return self.robot_xy
 
     def check_arrival(self):
-        """Success beep once the robot reaches the recovery waypoint."""
+        """Success beep once the drive to the recovery waypoint succeeds."""
         with self.pending_lock:
             pending = self.pending_arrival
             if pending is None:
@@ -275,23 +294,42 @@ class StudentRecoveryServer(Node):
                 )
                 return
 
-            position = self.robot_position()
-            if position is None:
+            # The diversion's FollowPath: the first controller goal that
+            # wasn't there when the waypoint was chosen
+            if pending['follow_id'] is None:
+                new = [g for g in self.follow_states if g not in pending['known']]
+                if not new:
+                    return
+                pending['follow_id'] = new[0]
+
+            state = self.follow_states.get(pending['follow_id'])
+            if state in (GoalStatus.STATUS_ABORTED, GoalStatus.STATUS_CANCELED):
+                self.pending_arrival = None
+                self.get_logger().warn(
+                    f'Recovery abandoned: the drive to {name} failed; '
+                    f'no success beep'
+                )
                 return
-            distance = math.dist(position, (pending['x'], pending['y']))
-            if distance > self.arrival_tolerance:
+            if state != GoalStatus.STATUS_SUCCEEDED:
                 return
 
             self.pending_arrival = None
 
+        position = self.robot_position()
+        away = (
+            f', {math.dist(position, (pending["x"], pending["y"])):.2f} m away'
+            if position is not None else ''
+        )
         self.get_logger().info(
-            f'Reached recovery waypoint ({name}, {distance:.2f} m away); '
-            f'recovery successful'
+            f'Reached recovery waypoint ({name}{away}); recovery successful'
         )
         self.beep(self.success_sound)
 
     def beep(self, value=SOUND_ERROR):
-        """Trigger the TurtleBot3 buzzer, min_beep_gap after the last beep."""
+        """Trigger the TurtleBot3 buzzer, min_beep_gap after the last beep.
+
+        Returns the time.monotonic() at which the sound starts.
+        """
 
         with self.beep_lock:
             now = time.monotonic()
@@ -309,9 +347,10 @@ class StudentRecoveryServer(Node):
             self.get_logger().info(
                 f'Sound {value} in {start - now:.1f} s, after the one playing'
             )
-            return
+            return start
 
         self.send_beep(value)
+        return start
 
     def send_beep(self, value):
         """Send the sound request to the TurtleBot3 buzzer asynchronously."""
@@ -525,7 +564,7 @@ class StudentRecoveryServer(Node):
         # STEP 1: Trigger the TurtleBot3 buzzer
         # --------------------------------------------------
 
-        self.beep(SOUND_ERROR)
+        activation_start = self.beep(SOUND_ERROR)
 
         # A new recovery replaces one still on its way to its waypoint
         with self.pending_lock:
@@ -564,6 +603,16 @@ class StudentRecoveryServer(Node):
             )
             return response
 
+        # Hold the reply until the activation sound has played: the behavior
+        # tree waits for it, so the robot stays still during the sound
+        if self.wait_for_activation_beep:
+            wait = activation_start + self.min_beep_gap - time.monotonic()
+            if wait > 0:
+                self.get_logger().info(
+                    f'Waiting {wait:.1f} s for the activation sound'
+                )
+                time.sleep(wait)
+
         recovery_x, recovery_y = self.candidates[index]
         response.recovery_pose.pose.position.x = recovery_x
         response.recovery_pose.pose.position.y = recovery_y
@@ -590,6 +639,7 @@ class StudentRecoveryServer(Node):
                 self.pending_arrival = dict(
                     goal_id=self.active_goal_id, index=index,
                     x=recovery_x, y=recovery_y, start=time.monotonic(),
+                    known=set(self.follow_states), follow_id=None,
                 )
 
         return response

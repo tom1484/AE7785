@@ -10,7 +10,7 @@ frame_id: map
 
 # Skip candidates closer than this to the robot (meters). The robot is stuck
 # there, so diverting to a point it's already at doesn't help. Keep it well
-# above arrival_tolerance (0.25 m), where the node counts a candidate reached.
+# above Nav2's goal tolerance (0.15 m), or the diversion barely moves it.
 min_distance: 0.5
 
 candidates:

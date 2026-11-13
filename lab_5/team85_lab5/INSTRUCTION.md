@@ -53,6 +53,7 @@ simulator's own ROS domain (77, localhost only), so it can't reach a robot.
 | `launch/waypoints.zsh` | Waypoint navigator (`wayPoints.txt`; `--sim`: `wayPoints_sim.txt`) |
 | `teleop.zsh` | Keyboard teleop |
 | `save.zsh` | Saves the map being built to `maps/map.*` (`--sim`: `maps/map_sim.*`) |
+| `record_waypoints.zsh` | Records 3 Publish Point clicks into `wayPoints.txt` (`--sim`: `wayPoints_sim.txt`; a number sets the count) |
 | `print_initial_pose.zsh` | Prints poses set with 2D Pose Estimate, as launch arguments |
 | `rviz.zsh`, `recovery.zsh`, `nav_recovery.zsh`, `slam.zsh`, `gazebo_sim.zsh`, `nav.zsh` | Single pieces, for debugging |
 
@@ -87,9 +88,10 @@ The map frame's origin is where the robot was when mapping started, facing +x.
 1. `scripts/launch/navigation.zsh`
 2. In RViz, set the robot's pose with **2D Pose Estimate**, and check that the
    laser scan lines up with the map walls.
-3. Get the 3 goal points with **Publish Point** and
-   `ros2 topic echo /clicked_point`, and write them into
-   `src/team85_lab5/wayPoints.txt`, one `x y` per line (map frame, meters).
+3. Run `scripts/record_waypoints.zsh` and click the 3 goal points in order
+   with **Publish Point**. It writes them to `src/team85_lab5/wayPoints.txt`
+   (one `x y` per line, map frame, meters) and keeps the old file as
+   `wayPoints.txt.bak`.
 4. `scripts/launch/waypoints.zsh`
 
 The navigator drives to each point in order, pauses 2 s at each, and prints a
@@ -130,17 +132,19 @@ is normal there.
 When Nav2 fails, the behavior tree calls `/divert_robot` on
 `recovery_student.py`, which:
 
-1. Plays the activation sound (ERROR).
+1. Plays the activation sound (ERROR), and holds its reply for 2.5 s so the
+   robot stays still while the sound plays.
 2. Plans a path to the nearby candidates with Nav2's planner and picks the
    shortest real path. It skips candidates closer than `min_distance` (0.5 m)
    and any candidate that already failed for the current goal: if the robot
    gets stuck again after diverting to a candidate, that one is excluded until
    the next goal.
-3. Returns it. The behavior tree drives there, then retries the original goal,
-   up to 3 recoveries per goal.
-4. Plays the success sound (ON) when the robot reaches the candidate. If the
-   recovery is abandoned first (another recovery, the goal ends, or 60 s),
-   there's no success sound.
+3. Returns it. The behavior tree drives there, waits 3 s, then retries the
+   original goal, up to 3 recoveries per goal.
+4. Plays the success sound (ON) when the drive to the candidate succeeds (the
+   controller's `FollowPath` result), during that 3 s wait. If the recovery is
+   abandoned first (the drive fails, another recovery starts, the goal ends,
+   or 60 s pass), there's no success sound.
 
 The buzzer plays one sound at a time, and a new request cuts off the sound
 playing. Each lasts almost 2 s, so the node spaces sounds 2.5 s apart
@@ -158,7 +162,8 @@ point. If it stays, the goal aborts after the third recovery.
 | `CMakeLists.txt` | `install(PROGRAMS ...)` installs `recovery_student.py`, not `recovery.py` | `recovery.py` isn't in the zip, so the build fails. **Affects every platform.** |
 | `CMakeLists.txt` | `-Wl,-dead_strip_dylibs` under `if(APPLE)` | macOS only: otherwise `bt_navigator` can't load the BT plugin (`symbol not found in flat namespace '_PyBool_FromLong'`) |
 | `recovery_student.py` | The recovery logic above; executable bit set | The lab's TODOs |
-| `behavior_trees/navigate_w_recovery_divert.xml` | `server_timeout="5000"` on `BeepAndDivertBridge` | Planning to the candidates takes longer than the default 200 ms |
+| `behavior_trees/navigate_w_recovery_divert.xml` | `server_timeout="10000"` on `BeepAndDivertBridge` | Planning to the candidates and waiting for the activation sound take far longer than the default 200 ms |
+| `behavior_trees/navigate_w_recovery_divert.xml` | `<Wait wait_duration="3"/>` after the diversion | The robot stays at the recovery point while the success sound plays |
 | `config/nav2_params.yaml` | Tuning, below | |
 | `config/recovery_candidates*.yaml` | New | Candidate points, real map and sim |
 | `package.xml` | Run dependencies of `recovery_student.py` | |
