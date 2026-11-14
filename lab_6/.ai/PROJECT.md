@@ -10,10 +10,15 @@ Handout: `provided/lab6_final.pdf`. Read `README.md` for layout, setup, and trap
 - Grading runs on CPU via ONNX + `cv2.dnn` (opencv-python + numpy only). onnxruntime is the fallback.
 - Training on Apple M2 with `device=mps`.
 
-## Current state
-- Done: directory layout, configs (base + m/s/n), uv venv (`uv sync`), deps verified, MPS works.
-- Next: split builder (labels.txt -> ImageFolder in data/splits/), train script, ONNX export,
-  cv2.dnn evaluator + PyTorch/ONNX parity check, submission assembler.
+## Current state (2026-11-14)
+- Done: pipeline (scripts/train.py -> split, train, ONNX export, parity, CPU eval -> outputs/reports/),
+  scripts/summarize.py. ONNX runs identically in cv2 5.0, cv2 4.11, and onnxruntime.
+- Sweep m/s/n x {stratified 80/20, holdout 2026F (train on 2025 only)}: ALL 100% accuracy.
+  Val is saturated; only confidence margins differ (n worst margin 0.30 on holdout vs ~0.6 for m/s).
+  CPU latency cv2.dnn: m 71 ms, s 23 ms, n 7.6 ms. ONNX: 63 / 20 / 5.8 MB.
+- Caveat: the val split also drives early stopping/best.pt, so scores are slightly optimistic.
+- Next (pending user choice): shrink imgsz (224 -> 160 -> 128) and/or harder robustness eval;
+  then a submission assembler (model_grader.py with predict via cv2.dnn, standalone train script).
 
 ## Known traps
 - venv has opencv 5.0.0; the TA may use 4.x. Verify cv2.dnn ONNX loading on both, or pin.
