@@ -22,3 +22,6 @@ submission/*
 # Ultralytics downloads pretrained weights to the cwd by default
 yolov8*-cls.pt
 yolo11*-cls.pt
+
+# Logs
+outputs/logs/
