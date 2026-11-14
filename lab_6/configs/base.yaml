@@ -14,8 +14,10 @@ data:
     seed: 0
 
 preprocess:
+  # Applied by OUR code (lab6.preprocess) when writing splits and inside predict(), so the
+  # images ultralytics sees are already imgsz x imgsz and its own Resize/CenterCrop is a no-op.
   imgsz: 224
-  resize_mode: squash           # squash (no crop) | center_crop (ultralytics default)
+  resize_mode: squash           # squash (whole frame, aspect distorted) | center_crop
 
 train:
   model: yolov8m-cls.pt         # pretrained ImageNet weights
@@ -26,16 +28,17 @@ train:
   workers: 4
   seed: 0
   optimizer: auto
-  # Augmentation. fliplr MUST stay 0: a mirrored left arrow is a right arrow.
+  # Augmentation (ultralytics classify pipeline: RandomResizedCrop -> flips -> [auto_augment]
+  # -> ColorJitter(hsv_*) -> RandomErasing). degrees/translate are ignored for classification.
+  # fliplr MUST stay 0: a mirrored left arrow is a right arrow.
   fliplr: 0.0
   flipud: 0.0
-  degrees: 10.0
-  scale: 0.3
-  translate: 0.1
+  scale: 0.3                    # RandomResizedCrop keeps 70-100% of the area
   hsv_h: 0.015
   hsv_s: 0.5
   hsv_v: 0.4
   erasing: 0.2
+  auto_augment: null            # default randaugment includes Solarize/Color ops that wreck color cues
 
 export:
   format: onnx
