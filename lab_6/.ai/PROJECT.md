@@ -32,8 +32,16 @@ Handout: `provided/lab6_final.pdf`. Read `README.md` for layout, setup, and trap
     aug:    n@224 98.8/0, n@160 97.1/3, s@224 99.1/2, s@160 96.1/1, m@224 99.7/0
   160px + aug hurts (s_aug@160 clean 97.4%, misses -> empty). Smallest passing the >1pt rule:
   n_aug@224 (clean 100%, 7.6 ms CPU, 5.8 MB). Caveat: test noise = training noise distribution.
-- Next: confirm choice with user (n_aug@224 vs s_aug@224), then submission assembler
-  (model_grader.py predict via cv2.dnn, standalone train script, requirements, readme, fresh-venv dry run).
+- User choice: SUBMIT m_aug@224; keep n_aug@224 for on-robot inference in the final.
+- Lab 6 submission DONE (2026-11-16): outputs/Chen_Zhu_Lab6.zip (52 MB), staged in submission/.
+  Sources: src/submission/{model_grader.py,train_model.py,readme.txt}; build with
+  `python scripts/make_submission.py --model submission/model.onnx --requirements --zip Chen_Zhu_Lab6.zip`.
+  model.onnx = m_aug trained on ALL 3 folders by the submitted train_model.py (60 ep, last.pt).
+  Final n model: outputs/models/final_yolov8n_cls_aug_all224.onnx.
+  Verified: fresh py3.12 venv from requirements.txt (cv2 4.11) and torch-free venv (cv2 5.0) both
+  run the grader; train_model.py runs from the extracted zip.
+- Trap: pipreqs emitted opencv_python twice (4.11 + 5.0); make_submission.py dedupes (keeps first).
+- Not done: user must upload the zip to Canvas. Next project phase: the final (ROS navigation).
 
 ## Known traps
 - venv has opencv 5.0.0; the TA may use 4.x. Verify cv2.dnn ONNX loading on both, or pin.

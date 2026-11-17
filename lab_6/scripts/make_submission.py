@@ -66,7 +66,19 @@ def main():
     if args.requirements:
         env = dict(os.environ, PATH=f"{Path(sys.executable).parent}:{os.environ['PATH']}")
         subprocess.run([sys.executable, "generate_requirements.py"], cwd=SUB, env=env, check=True)
-        print((SUB / "requirements.txt").read_text())
+        # pipreqs can emit the same package twice with different pins (seen: opencv_python 4.11 and
+        # 5.0), which makes `pip install -r` fail. Keep the first pin of each package.
+        req = SUB / "requirements.txt"
+        seen, kept = set(), []
+        for line in req.read_text().splitlines():
+            pkg = line.split("==")[0].strip().lower().replace("_", "-")
+            if line.startswith("#") or pkg not in seen:
+                kept.append(line)
+                seen.add(pkg)
+            else:
+                print(f"dropped duplicate requirement: {line}")
+        req.write_text("\n".join(kept) + "\n")
+        print(req.read_text())
 
     if args.zip:
         files = ["model_grader.py", "train_model.py", "readme.txt", "requirements.txt", "model.onnx",
