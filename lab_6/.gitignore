@@ -1,0 +1,28 @@
+# Environment
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Data (raw images are tracked via data/archives/*.zip; extracted copies are not)
+data/raw/
+data/splits/*
+!data/splits/.gitkeep
+
+# Generated outputs
+outputs/runs/*
+outputs/models/*
+outputs/reports/*
+!outputs/*/.gitkeep
+submission/*
+!submission/.gitkeep
+*.zip
+!data/archives/*.zip
+
+# Ultralytics downloads pretrained weights to the cwd by default
+yolov8*-cls.pt
+yolo11*-cls.pt
+
+# Logs
+outputs/logs/
+outputs/final/

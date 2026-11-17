@@ -1,0 +1,4 @@
+inherit: ../base.yaml
+name: yolov8n_cls
+train:
+  model: yolov8n-cls.pt

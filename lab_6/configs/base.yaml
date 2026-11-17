@@ -1,0 +1,52 @@
+# Shared defaults for all YOLOv8-cls experiments.
+# Experiment files in configs/experiments/ set `inherit: base.yaml` and override keys.
+
+data:
+  raw_dirs:                     # relative to repo root; each has labels.txt + NNN.png
+    - data/raw/2025F_imgs
+    - data/raw/2025F_Gimgs
+    - data/raw/2026F_imgs
+  num_classes: 6                # 0 empty wall, 1 left, 2 right, 3 do-not-enter, 4 stop, 5 goal
+  split:
+    strategy: stratified        # stratified | holdout_folder
+    val_ratio: 0.2
+    holdout_folder: data/raw/2026F_imgs   # used when strategy == holdout_folder
+    seed: 0
+
+preprocess:
+  # Applied by OUR code (lab6.preprocess) when writing splits and inside predict(), so the
+  # images ultralytics sees are already imgsz x imgsz and its own Resize/CenterCrop is a no-op.
+  imgsz: 224
+  resize_mode: squash           # squash (whole frame, aspect distorted) | center_crop
+
+train:
+  model: yolov8m-cls.pt         # pretrained ImageNet weights
+  epochs: 50
+  patience: 15
+  batch: 32
+  device: mps                   # Apple M2 GPU; fall back to "cpu" if an op fails
+  workers: 4
+  seed: 0
+  optimizer: auto
+  # Augmentation (ultralytics classify pipeline: RandomResizedCrop -> flips -> [auto_augment]
+  # -> ColorJitter(hsv_*) -> RandomErasing). degrees/translate are ignored for classification.
+  # fliplr MUST stay 0: a mirrored left arrow is a right arrow.
+  fliplr: 0.0
+  flipud: 0.0
+  scale: 0.3                    # RandomResizedCrop keeps 70-100% of the area
+  hsv_h: 0.015
+  hsv_s: 0.5
+  hsv_v: 0.4
+  erasing: 0.2
+  auto_augment: null            # default randaugment includes Solarize/Color ops that wreck color cues
+  # Train-time lab6.corrupt augmentation on raw frames (null = off). See *_aug experiment configs.
+  corrupt: null                 # e.g. {p: 0.8, k_range: [1, 4]}
+  select: best                  # checkpoint to export: best | last
+
+export:
+  format: onnx
+  opset: 12
+  simplify: true
+
+output:
+  root: outputs

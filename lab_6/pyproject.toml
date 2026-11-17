@@ -1,0 +1,36 @@
+[project]
+name = "lab6"
+version = "0.1.0"
+description = "AE7785 Lab 6: sign classification with YOLOv8-cls, graded on CPU via ONNX + OpenCV DNN"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # Grading/inference path: keep this minimal (cv2.dnn runs the exported ONNX model).
+    "numpy",
+    "opencv-python",
+    # Training/experiments only (never imported by the graded predict()).
+    "ultralytics",
+    "onnx",
+    "onnxslim",
+    "onnxruntime",
+    "scikit-learn",
+    "pyyaml",
+    "pandas",
+    "tabulate>=0.10.0",
+]
+
+[dependency-groups]
+dev = [
+    "pipreqs",
+    "pytest",
+    "ruff",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lab6"]
+
+[tool.ruff]
+line-length = 100
