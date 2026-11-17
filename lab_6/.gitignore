@@ -25,3 +25,4 @@ yolo11*-cls.pt
 
 # Logs
 outputs/logs/
+outputs/final/
