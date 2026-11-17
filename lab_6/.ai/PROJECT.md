@@ -24,9 +24,16 @@ Handout: `provided/lab6_final.pdf`. Read `README.md` for layout, setup, and trap
   s@224 96.1, m@224 96.2. Under noise n fails the >1pt rule; s@224 is smallest acceptable.
   Weak spots: severe darkness (brightness sev3), jpeg q10, noise sigma20. n errors mostly "->empty";
   m has 11 left<->right composite errors (worst kind for navigation), s has 1.
-- Corruptions are eval-only so far (not in training).
-- Next (pending user choice): train-time corruption aug (split train/held-out corruption sets),
-  s@160 run; then submission assembler.
+- Train-time aug (user choice: ALL 16 corruptions, test with a different image seed):
+  configs/experiments/*_aug.yaml, lab6/augtrain.py, 60 epochs, export last.pt.
+  Holdout-2026, test seed 1 (outputs/reports/robustness__holdout-2026F_imgs_seed0__testseed1.md),
+  composite acc / L<->R errors (of 765):
+    no-aug: n@224 90.6/5, n@160 91.1/7, s@224 94.1/12, m@224 95.2/15
+    aug:    n@224 98.8/0, n@160 97.1/3, s@224 99.1/2, s@160 96.1/1, m@224 99.7/0
+  160px + aug hurts (s_aug@160 clean 97.4%, misses -> empty). Smallest passing the >1pt rule:
+  n_aug@224 (clean 100%, 7.6 ms CPU, 5.8 MB). Caveat: test noise = training noise distribution.
+- Next: confirm choice with user (n_aug@224 vs s_aug@224), then submission assembler
+  (model_grader.py predict via cv2.dnn, standalone train script, requirements, readme, fresh-venv dry run).
 
 ## Known traps
 - venv has opencv 5.0.0; the TA may use 4.x. Verify cv2.dnn ONNX loading on both, or pin.
