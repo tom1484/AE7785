@@ -1,0 +1,11 @@
+inherit: yolov8m_cls.yaml
+name: yolov8m_cls_aug
+train:
+  # Each training sample: with prob p, 1-4 random lab6.corrupt corruptions at random severity
+  # (all 16 types), applied to the raw frame before resizing.
+  corrupt:
+    p: 0.8
+    k_range: [1, 4]
+  epochs: 60
+  patience: 0          # no early stopping: clean val saturates at 100% within a few epochs
+  select: last

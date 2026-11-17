@@ -51,8 +51,15 @@ def train(cfg: dict, force_split: bool = False) -> dict:
     weights_dir.mkdir(parents=True, exist_ok=True)
     model = YOLO(str(weights_dir / tc["model"]))
 
+    trainer = None
+    if tc.get("corrupt"):
+        from lab6.augtrain import make_trainer
+
+        trainer = make_trainer(tc["corrupt"], pp["imgsz"], pp["resize_mode"])
+
     t0 = time.time()
     model.train(
+        trainer=trainer,
         data=str(split_root),
         imgsz=pp["imgsz"],
         project=str(REPO_ROOT / "outputs" / "runs"),
@@ -65,7 +72,9 @@ def train(cfg: dict, force_split: bool = False) -> dict:
     train_minutes = (time.time() - t0) / 60
 
     run_dir = REPO_ROOT / "outputs" / "runs" / rid
-    best = YOLO(str(run_dir / "weights" / "best.pt"))
+    # "best" = first epoch reaching max clean-val top1 (ultralytics uses strict <), which with a
+    # saturated val set is an early epoch; augmented runs train a fixed schedule and use "last".
+    best = YOLO(str(run_dir / "weights" / f"{tc.get('select', 'best')}.pt"))
     ex = cfg["export"]
     exported = best.export(
         format=ex["format"], imgsz=pp["imgsz"], opset=ex["opset"], simplify=ex["simplify"], device="cpu"

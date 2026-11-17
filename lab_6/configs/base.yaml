@@ -39,6 +39,9 @@ train:
   hsv_v: 0.4
   erasing: 0.2
   auto_augment: null            # default randaugment includes Solarize/Color ops that wreck color cues
+  # Train-time lab6.corrupt augmentation on raw frames (null = off). See *_aug experiment configs.
+  corrupt: null                 # e.g. {p: 0.8, k_range: [1, 4]}
+  select: best                  # checkpoint to export: best | last
 
 export:
   format: onnx

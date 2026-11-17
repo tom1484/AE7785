@@ -116,8 +116,8 @@ def main():
         wrong = comp_df[comp_df[m] != comp_df.label]
         pairs[m] = (wrong.label.map(CLASS_NAMES) + "->" + wrong[m].map(CLASS_NAMES)).value_counts().head(6).to_dict()
 
-    tag = f"robustness__{args.split}"
-    md = [f"# Robustness: {args.split}\n",
+    tag = f"robustness__{args.split}__testseed{args.seed}"
+    md = [f"# Robustness: {args.split} (test-image seed {args.seed})\n",
           f"val images: {len(val)}; per-corruption: 16 x 3 severities; composite: {args.composite_copies} copies/image\n",
           "## Headline accuracy\n", (head * 100).round(1).to_markdown(), "\n",
           "## Per corruption (accuracy %, columns = model, severity)\n",
