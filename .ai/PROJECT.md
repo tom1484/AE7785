@@ -75,6 +75,15 @@ seen in passing), and the "sign in front" can be picked by box size/centeredness
   every sign whose class you can tell, in every image, with its own class; an image's
   lab_6 label is only the default class for new boxes. Unboxed visible signs would be
   learned as background (bad for passive sightings).
+- First review pass DONE (2026-11-19, user): labels.json, 591/591 reviewed, one box per sign
+  image (5 edited), empty images no boxes. User's finding: many sign images also contain
+  small unclear signs, and many "empty" images contain clear small signs (shot far from the
+  wall); none of those are boxed in labels.json.
+- Second pass (multi-sign): `scripts/candidates.py` -> data/labels/candidates.json (top-20
+  per model, class-agnostic merge, whole-wall boxes dropped); `scripts/review_multi.py`
+  (zoom/pan, active-class brush, candidate adoption, unclaimed-candidate priority) writes
+  data/labels/multi.json starting from labels.json. Export must prefer multi.json over
+  labels.json where reviewed.
 - Next: user reviews all images; then export reviewed labels to YOLO format (class id =
   lab_6 id - 1) with the lab_6 holdout split, train, export, hand to team85_final.
 
