@@ -19,7 +19,12 @@ dependencies = [
 [dependency-groups]
 dev = ["pytest", "ruff"]
 # Zero-shot auto-boxing (OWLv2 / Grounding DINO) for bootstrapping labels.
-label = ["transformers", "torch", "pillow"]
+label = [
+    "transformers",
+ "torch",
+ "pillow",
+ "clip",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -30,3 +35,6 @@ packages = ["src/lfv"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.uv.sources]
+clip = { git = "https://github.com/ultralytics/CLIP.git" }

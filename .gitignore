@@ -20,3 +20,6 @@ outputs/logs/
 # Ultralytics downloads pretrained weights to the cwd by default
 yolov8*.pt
 yolo11*.pt
+yoloe-*.pt
+mobileclip*.ts
+outputs/weights/

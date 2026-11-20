@@ -3,7 +3,7 @@
 AE7785 final (demo 2026-12-07): train a YOLO **detection** model for the maze signs, for
 online inference on the TurtleBot pipeline. Consumer: ROS package
 `~/Workspace/turtlebot3_ws/src/team85_final` (`team85_final/vision/detector.py`,
-params in `config/final.yaml`, model at `models/signs.onnx`). Read its `CLAUDE.md` for the
+params in `config/final.yaml`, model at `models/signs.onnx`). Read `~/Workspace/turtlebot3_ws/CLAUDE.md` for the
 whole-system plan. Predecessor: `../lab_6` (YOLOv8-cls, 100% on 4 folders; see its .ai/PROJECT.md).
 
 ## Why detection, not cls
@@ -42,7 +42,30 @@ seen in passing), and the "sign in front" can be picked by box size/centeredness
    team85_final/models/signs.onnx and update final.yaml.
 
 ## Current state (2026-11-19)
-- Scaffold only: pyproject (not yet `uv sync`ed), dirs, this plan. No data converted yet.
+- Scaffold + `uv sync --group label` done (torch 2.15 MPS, ultralytics 8.4.215,
+  transformers 5.23, cv2 5.1; CLIP from git for YOLOE/YOLO-World).
+- Zero-shot benchmark (`scripts/bench_zeroshot.py`, 30 lab_6 images = 6/class over all
+  folders, prompts arrow / stop sign / star / u-turn arrow sign, top-1 box, M2 MPS warm):
+
+  | model | ms/img | found | quality (contact sheets in outputs/review/) |
+  |---|---|---|---|
+  | Grounding DINO tiny (IDEA-Research/grounding-dino-tiny) | 1121 | 30/30 | 29 tight; 1 whole-wall box (do-not-enter) |
+  | OWLv2 base (google/owlv2-base-patch16-ensemble) | 802 | 30/30 | 28 tight; 2 whole-wall (do-not-enter); scores ~0.6-0.9 |
+  | YOLOE-11s-seg | 50 | 28/30 | tight when found, but scores 0.01-0.1; missed blue curved arrow, dim star |
+  | YOLO-World v2 s | 33 | 13/30 | unusable |
+
+  Decision: label on the laptop (OWLv2 + GDINO on ~595 imgs is ~20 min). No remote
+  (Mac mini / dev-infra) image needed. Docker on macOS has no MPS anyway, so remote
+  training in a container would be CPU-only and slower than the laptop.
+- Next: `scripts/autolabel.py` -- run OWLv2 + GDINO on every lab_6 image; auto-accept
+  when the two top-1 boxes agree (IoU >= 0.8) and the box is < 50% of the image; queue the
+  rest for manual review (contact sheet + small fix tool). Class = the lab_6 label.
+  Robot/sim frames later may hold several signs: then keep all boxes above a score.
 
 ## Known traps
+- Run the venv with the humble conda env deactivated (`env -i HOME=$HOME PATH=/usr/bin:/bin
+  .venv/bin/python ...` from agent shells): its libomp clashes with torch's (OMP Error #15).
+- uv venv has no pip: ultralytics' auto-install of CLIP fails; CLIP is in the `label` group.
+- transformers 5: OWLv2 post-processing is `post_process_grounded_object_detection`.
+- Box failure mode of both zero-shot models: whole-wall box on do-not-enter signs.
 - Don't copy lab_6 data into git; reference ../lab_6/data/raw or archive zips under data/archives.
