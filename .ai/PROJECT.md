@@ -92,7 +92,18 @@ seen in passing), and the "sign in front" can be picked by box size/centeredness
   "empty" on small/oblique signs (10-68 px, outside its training framing); 4 = cls names
   another sign, all pink U-turns 25-35 px. Visual check of all 34: no clear label error.
   Unsure: 2026F_imgs/144.png box 3 (15 px pink sliver at the image edge, DNE vs stop).
-- Next: export labels (multi.json) to YOLO format (class id =
+- Detector v1 (2026-11-20): export_yolo.py (holdout-2026F_imgs: train 438 imgs/446 boxes,
+  val 153/181; all: 591/627), train_det.py (YOLO11n, fliplr 0, MPS ~23 s/epoch at 416),
+  eval_det.py (ONNX via team85_final SignDetector). yolo11n@416 holdout, conf 0.5:
+  P 0.938 R 0.923, 0 left<->right swaps, front-sign 133/133, 36.8 ms (cv2 5.1 venv,
+  full eval loop) / 24.6 ms median (humble cv2 4.13); cv2 5.1 vs 4.13 detections identical.
+  Errors: stop recall 0.71 = mostly ONE far ~20 px stop sign over frames 144-148 (-> goal
+  or missed) + 2 edge-on stops; many FPs are real signs the user left unlabeled (10-13 px,
+  image-edge partials). Far stop vs goal is unreliable -> planners must only Finish on an
+  INSPECTed goal (they do).
+- YOLO11n chosen over YOLO26: YOLO26 is NMS-free end2end with a different ONNX output.
+- Next: 320 vs 416 comparison, then final model on data/yolo/all, copy to team85_final.
+- (old) export labels (multi.json) to YOLO format (class id =
   lab_6 id - 1) with the lab_6 holdout split, train, export, hand to team85_final.
 
 ## Known traps
