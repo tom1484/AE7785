@@ -57,10 +57,17 @@ seen in passing), and the "sign in front" can be picked by box size/centeredness
   Decision: label on the laptop (OWLv2 + GDINO on ~595 imgs is ~20 min). No remote
   (Mac mini / dev-infra) image needed. Docker on macOS has no MPS anyway, so remote
   training in a container would be CPU-only and slower than the laptop.
-- Next: `scripts/autolabel.py` -- run OWLv2 + GDINO on every lab_6 image; auto-accept
-  when the two top-1 boxes agree (IoU >= 0.8) and the box is < 50% of the image; queue the
-  rest for manual review (contact sheet + small fix tool). Class = the lab_6 label.
-  Robot/sim frames later may hold several signs: then keep all boxes above a score.
+- Labeling pipeline (2026-11-19):
+  - `scripts/autolabel.py`: OWLv2 + GDINO top-3 boxes per lab_6 image -> `data/labels/auto.json`
+    (resumable; `--reanalyse` recomputes flags/proposals from stored preds in seconds).
+    Proposal: mean of the two top-1 boxes if IoU >= 0.8, else OWLv2's (tighter), skipping
+    boxes >= 50% of the image. Flags: no_box, disagree, huge_box, low_score, edge, sign_on_empty.
+  - `scripts/review.py`: OpenCV GUI over ALL images, flagged/low-score first. Writes
+    `data/labels/labels.json` (human truth; autolabel never touches it) on every accept.
+    Logic is in the window-free `Reviewer` class, tested in tests/test_review.py.
+  - Both json files are tracked in git (labels.json is manual work: commit it often).
+- Next: user reviews all images; then export reviewed labels to YOLO format (class id =
+  lab_6 id - 1) with the lab_6 holdout split, train, export, hand to team85_final.
 
 ## Known traps
 - Run the venv with the humble conda env deactivated (`env -i HOME=$HOME PATH=/usr/bin:/bin
