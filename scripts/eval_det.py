@@ -32,15 +32,17 @@ from lfv.zeroshot import iou  # noqa: E402
 NAMES = ['left', 'right', 'do_not_enter', 'stop', 'goal']
 
 
-def export(run: Path, imgsz: int) -> Path:
-    out = ROOT / 'outputs' / 'models' / f'{run.name}.onnx'
-    if out.exists() and out.stat().st_mtime > (run / 'weights' / 'best.pt').stat().st_mtime:
+def export(run: Path, imgsz: int, weights: str = 'best') -> Path:
+    pt = run / 'weights' / f'{weights}.pt'
+    suffix = '' if weights == 'best' else f'_{weights}'
+    out = ROOT / 'outputs' / 'models' / f'{run.name}{suffix}.onnx'
+    if out.exists() and out.stat().st_mtime > pt.stat().st_mtime:
         return out
     from ultralytics import YOLO
     cwd = os.getcwd()
     os.chdir(ROOT / 'outputs' / 'weights')
     try:
-        path = YOLO(str(run / 'weights' / 'best.pt')).export(
+        path = YOLO(str(pt)).export(
             format='onnx', imgsz=imgsz, opset=12, simplify=True, dynamic=False, nms=False)
     finally:
         os.chdir(cwd)
@@ -62,6 +64,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('run')
     ap.add_argument('--conf', type=float, default=0.5)
+    ap.add_argument('--weights', default='best', choices=['best', 'last'],
+                    help='last for runs without a real val split (data/yolo/all)')
     a = ap.parse_args()
 
     run = Path(a.run).resolve()
@@ -69,7 +73,7 @@ def main():
     imgsz = int(args['imgsz'])
     data = yaml.safe_load(Path(args['data']).read_text())
     val_dir = Path(data['path']) / data['val']
-    onnx = export(run, imgsz)
+    onnx = export(run, imgsz, a.weights)
     det = SignDetector(str(onnx), NAMES, imgsz=imgsz, conf_threshold=a.conf)
 
     images = sorted(val_dir.iterdir())
