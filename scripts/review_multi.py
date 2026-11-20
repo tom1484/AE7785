@@ -7,6 +7,7 @@ the most unclaimed candidates come first.
 
     env -i HOME=$HOME PATH=/usr/bin:/bin .venv/bin/python scripts/review_multi.py
     ... --order seq | --unreviewed
+    ... --ids data/labels/mismatches.txt     # only these images, in file order
 
 Keys
     space / enter   accept this image's boxes, next image
@@ -347,6 +348,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument('--order', choices=['priority', 'seq'], default='priority')
     ap.add_argument('--unreviewed', action='store_true')
+    ap.add_argument('--ids', help='file with one image id per line: review only those, in order')
     a = ap.parse_args()
 
     auto = L.load(L.AUTO)
@@ -354,10 +356,16 @@ def main():
     if not auto or not cands:
         sys.exit('need data/labels/auto.json and candidates.json (scripts/candidates.py)')
     rv = MultiReviewer(auto, L.load(L.LABELS), L.load(MULTI), cands, a.order, a.unreviewed)
+    if a.ids:
+        wanted = [ln.strip() for ln in Path(a.ids).read_text().splitlines() if ln.strip()]
+        rv.ids = [i for i in wanted if i in auto]
+        rv.go(0)
     if not rv.ids:
         sys.exit('nothing to review')
-    first = next((j for j, i in enumerate(rv.ids) if not rv.multi.get(i, {}).get('reviewed')), 0)
-    rv.go(first)
+    if not a.ids:   # resume at the first unreviewed image
+        first = next((j for j, i in enumerate(rv.ids)
+                      if not rv.multi.get(i, {}).get('reviewed')), 0)
+        rv.go(first)
 
     win = 'multi-sign review (h = help)'
     cv2.namedWindow(win, cv2.WINDOW_AUTOSIZE)

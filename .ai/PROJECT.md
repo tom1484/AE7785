@@ -84,7 +84,15 @@ seen in passing), and the "sign in front" can be picked by box size/centeredness
   (zoom/pan, active-class brush, candidate adoption, unclaimed-candidate priority) writes
   data/labels/multi.json starting from labels.json. Export must prefer multi.json over
   labels.json where reviewed.
-- Next: user reviews all images; then export reviewed labels to YOLO format (class id =
+- Multi-sign pass DONE (user, 2026-11-20): multi.json, 591/591 reviewed, 626 boxes
+  (first pass 514), 41 images with >1 sign. Box height p5/p25/p50 = 21/78/125 px.
+- Label check (`scripts/validate_cls.py`, lab_6 m_aug 4-folder cls on camera-framed windows
+  around each box, 2 framings averaged): 34/626 disagree in 25 images
+  (data/labels/mismatches.txt, report outputs/reports/validate_cls.md). 30 = cls says
+  "empty" on small/oblique signs (10-68 px, outside its training framing); 4 = cls names
+  another sign, all pink U-turns 25-35 px. Visual check of all 34: no clear label error.
+  Unsure: 2026F_imgs/144.png box 3 (15 px pink sliver at the image edge, DNE vs stop).
+- Next: export labels (multi.json) to YOLO format to YOLO format (class id =
   lab_6 id - 1) with the lab_6 holdout split, train, export, hand to team85_final.
 
 ## Known traps
