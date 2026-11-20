@@ -45,3 +45,11 @@ def test_empty_wall():
     assert run(0, [1, 1, 50, 50, 0.1], [1, 1, 50, 50, 0.1]) == {
         'flags': [], 'proposal': [], 'agree_iou': None}
     assert run(0, [1, 1, 50, 50, 0.9], None)['flags'] == ['sign_on_empty']
+
+
+def test_low_score_is_relative_to_the_class():
+    auto = {f'i{k}': {'cls': 3, 'size': [W, H], 'preds': {
+        'owlv2': [[100, 100, 200, 200, s]], 'gdino': [[100, 100, 200, 200, 0.5]]}}
+        for k, s in enumerate([0.08, 0.09, 0.07, 0.02])}
+    al.reanalyse(auto)
+    assert [r['flags'] for r in auto.values()] == [[], [], [], ['low_score']]

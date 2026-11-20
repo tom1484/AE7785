@@ -13,6 +13,8 @@ Keys
     right  /  .     next image (no change)        left / ,   previous image
     f               jump to the next unreviewed image
     drag (left)     draw a new box (class = the image's label; change with 1-5)
+                    Box EVERY sign whose class you can tell, also far-away ones and
+                    ones in "empty" images (they would otherwise be learned as background).
     click (left)    select a box                   right-click   delete the box under it
     x / backspace   delete the selected box        e             no sign (remove all boxes)
     1..5            class of the selected box: 1 left 2 right 3 do_not_enter 4 stop 5 goal

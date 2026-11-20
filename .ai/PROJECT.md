@@ -66,6 +66,15 @@ seen in passing), and the "sign in front" can be picked by box size/centeredness
     `data/labels/labels.json` (human truth; autolabel never touches it) on every accept.
     Logic is in the window-free `Reviewer` class, tested in tests/test_review.py.
   - Both json files are tracked in git (labels.json is manual work: commit it often).
+- Auto-label run done (2026-11-19): 591/591 images, 2.15 s/img on M2 MPS (~21 min).
+  126 flagged after relative low-score thresholds: edge 67, sign_on_empty 38, disagree 21,
+  low_score 10, huge_box 6. OWLv2 scores do_not_enter ~0.08 even with a right box, hence
+  thresholds = min(fixed, 0.6 x class median).
+- FINDING: lab_6 "empty" (class 0) images are mostly distant views with small far-away
+  signs in them (label meant "no sign in front"). LABELING POLICY for the detector: box
+  every sign whose class you can tell, in every image, with its own class; an image's
+  lab_6 label is only the default class for new boxes. Unboxed visible signs would be
+  learned as background (bad for passive sightings).
 - Next: user reviews all images; then export reviewed labels to YOLO format (class id =
   lab_6 id - 1) with the lab_6 holdout split, train, export, hand to team85_final.
 

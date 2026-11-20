@@ -24,11 +24,18 @@ from lfv.zeroshot import grounding_dino, iou, owlv2  # noqa: E402
 AGREE_IOU = 0.8
 HUGE_AREA = 0.5           # fraction of the image
 LOW_SCORE = {'owlv2': 0.3, 'gdino': 0.35}
+LOW_REL = 0.6             # low_score = below 0.6 x the class median (capped by LOW_SCORE)
 EMPTY_SCORE = {'owlv2': 0.3, 'gdino': 0.4}
 
 
-def analyse(cls: int, preds: dict[str, list], w: int, h: int) -> dict:
-    """Fuse the two models' top-1 boxes and flag anything worth a closer look."""
+def analyse(cls: int, preds: dict[str, list], w: int, h: int,
+            low: dict[str, float] | None = None) -> dict:
+    """Fuse the two models' top-1 boxes and flag anything worth a closer look.
+
+    `low`: per-model low-score threshold for this class (class_low_thresholds); OWLv2
+    scores U-turn signs ~0.08 even when its box is right, so a fixed cut-off is useless.
+    """
+    low = low or LOW_SCORE
     flags = []
     tops = {m: (p[0] if p else None) for m, p in preds.items()}
     area = lambda b: (b[2] - b[0]) * (b[3] - b[1]) / (w * h)  # noqa: E731
@@ -41,7 +48,7 @@ def analyse(cls: int, preds: dict[str, list], w: int, h: int) -> dict:
     if any(t is None for t in tops.values()):
         flags.append('no_box')
     for m, t in tops.items():
-        if t and t[4] < LOW_SCORE[m]:
+        if t and t[4] < low[m]:
             flags.append('low_score')
             break
     a, b = tops['owlv2'], tops['gdino']
@@ -67,6 +74,24 @@ def analyse(cls: int, preds: dict[str, list], w: int, h: int) -> dict:
     return {'flags': sorted(set(flags)), 'proposal': proposal, 'agree_iou': round(agree, 3)}
 
 
+def class_low_thresholds(auto: dict) -> dict[int, dict[str, float]]:
+    """Per class and model: min(LOW_SCORE, LOW_REL x the class's median top-1 score)."""
+    out = {}
+    for c in {r['cls'] for r in auto.values()}:
+        out[c] = {}
+        for m in LOW_SCORE:
+            s = sorted(r['preds'][m][0][4] for r in auto.values() if r['cls'] == c and r['preds'][m])
+            med = s[len(s) // 2] if s else LOW_SCORE[m]
+            out[c][m] = min(LOW_SCORE[m], LOW_REL * med)
+    return out
+
+
+def reanalyse(auto: dict) -> None:
+    lows = class_low_thresholds(auto)
+    for r in auto.values():
+        r.update(analyse(r['cls'], r['preds'], *r['size'], low=lows[r['cls']]))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--device', default='mps')
@@ -81,8 +106,7 @@ def main():
         items = items[:a.limit]
     auto = {} if a.redo else L.load(L.AUTO)
     if a.reanalyse:
-        for r in auto.values():
-            r.update(analyse(r['cls'], r['preds'], *r['size']))
+        reanalyse(auto)
         L.save(L.AUTO, auto)
         print_flags(auto)
         return
@@ -105,6 +129,8 @@ def main():
             print(f'{n}/{len(todo)}  {rate:.2f} s/img  eta {rate * (len(todo) - n) / 60:.1f} min',
                   flush=True)
 
+    reanalyse(auto)          # thresholds relative to the finished set
+    L.save(L.AUTO, auto)
     print_flags(auto)
 
 
