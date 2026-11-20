@@ -102,9 +102,16 @@ seen in passing), and the "sign in front" can be picked by box size/centeredness
   image-edge partials). Far stop vs goal is unreliable -> planners must only Finish on an
   INSPECTed goal (they do).
 - YOLO11n chosen over YOLO26: YOLO26 is NMS-free end2end with a different ONNX output.
-- Next: 320 vs 416 comparison, then final model on data/yolo/all, copy to team85_final.
-- (old) export labels (multi.json) to YOLO format (class id =
-  lab_6 id - 1) with the lab_6 holdout split, train, export, hand to team85_final.
+- 320 vs 416 (holdout, conf 0.5): 320 = P 0.918 R 0.923, 1 left<->right swap, stop->goal 5;
+  416 = P 0.938 R 0.923, 0 swaps, stop->goal 3. Chose 416 (24.6 ms in humble env).
+- FINAL MODEL DELIVERED (2026-11-20): yolo11n_all_416 (all 591 imgs, 80 epochs, last.pt) ->
+  outputs/models/yolo11n_all_416_last.onnx -> team85_final/models/signs.onnx (+ README),
+  final.yaml imgsz 416. Verified: loads in humble cv2 4.13 (output 1x9x3549); the real
+  sign_detector node on live Gazebo camera publishes right 0.91 / stop 0.90 / U-turn 0.62
+  with correct bearing signs (~6 Hz on sim 10 Hz camera).
+- Sim domain gap: Gazebo U-turn texture looks mirrored vs the lab sign (weak score), and
+  Gazebo light gizmos above walls can trigger weak arrow detections. Fix if sim testing
+  matters: label ~50 sim frames (review_multi works on any folder with labels.txt) + fine-tune.
 
 ## Known traps
 - Run the venv with the humble conda env deactivated (`env -i HOME=$HOME PATH=/usr/bin:/bin
