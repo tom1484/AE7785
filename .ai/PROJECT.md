@@ -92,7 +92,7 @@ seen in passing), and the "sign in front" can be picked by box size/centeredness
   "empty" on small/oblique signs (10-68 px, outside its training framing); 4 = cls names
   another sign, all pink U-turns 25-35 px. Visual check of all 34: no clear label error.
   Unsure: 2026F_imgs/144.png box 3 (15 px pink sliver at the image edge, DNE vs stop).
-- Next: export labels (multi.json) to YOLO format to YOLO format (class id =
+- Next: export labels (multi.json) to YOLO format (class id =
   lab_6 id - 1) with the lab_6 holdout split, train, export, hand to team85_final.
 
 ## Known traps
