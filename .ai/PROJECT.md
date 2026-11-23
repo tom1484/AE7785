@@ -109,6 +109,20 @@ seen in passing), and the "sign in front" can be picked by box size/centeredness
   final.yaml imgsz 416. Verified: loads in humble cv2 4.13 (output 1x9x3549); the real
   sign_detector node on live Gazebo camera publishes right 0.91 / stop 0.90 / U-turn 0.62
   with correct bearing signs (~6 Hz on sim 10 Hz camera).
+- Smaller inputs for running ON the robot's Pi 4 (2026-11-23; demo stays on the laptop with
+  416). Holdout, conf 0.5: 256 = P 0.943 R 0.912, 1 left<->right swap, left recall 0.906,
+  stop->goal 3 (report det__yolo11n_holdout-2026F_imgs_256.md). All-data models trained
+  (80 ep, last.pt): yolo11n_all_320_last.onnx, yolo11n_all_256_last.onnx (train-set check
+  0 swaps, P/R 0.971/1.000 and 0.974/0.998 - not a generalization measure). Pi 4 cv2.dnn
+  4.10, 2 threads: 416 354 ms, 320 229 ms, 256 150 ms per frame (4 threads slower).
+  Not delivered: team85_final still ships 416; onboard runs pass detector_model:=.
+  Reproduce (venv, humble env deactivated; same settings as 416 apart from imgsz):
+    train_det.py --data data/yolo/holdout-2026F_imgs/data.yaml --imgsz 256       (100 ep)
+    eval_det.py outputs/runs/det/yolo11n_holdout-2026F_imgs_256
+    train_det.py --data data/yolo/all/data.yaml --imgsz {320,256} --epochs 80
+    eval_det.py outputs/runs/det/yolo11n_all_{320,256} --weights last
+  Onboard result: all-data 256 at 2 Hz ran the full pipeline on the Pi (graph 143 s,
+  sighting-only 57 s); 4 Hz overloads it (turtlebot3_ws CLAUDE.md, onboard experiment).
 - Sim domain gap: Gazebo U-turn texture looks mirrored vs the lab sign (weak score), and
   Gazebo light gizmos above walls can trigger weak arrow detections. Fix if sim testing
   matters: label ~50 sim frames (review_multi works on any folder with labels.txt) + fine-tune.
