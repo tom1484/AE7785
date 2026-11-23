@@ -187,8 +187,9 @@ Core modules are **rclpy-free** and unit-tested; nodes are thin wrappers.
   2026-11-20 on current code). `final.yaml` defaults to `planner: grid`; graph is chosen at launch.
 - `src/cartographer_ros` carries 5 local patches (uncommitted in its upstream clone, by
   design); the 5th (absl log libs) was needed because a clean build failed to link.
-- Not versioned: the workspace isn't git (`copy_to_repo.sh` mirrors to `~/Git/AE7785`,
-  never run for real - publishing the final is the user's call).
+- Versioning: the workspace isn't git. `copy_to_repo.sh` mirrors to `~/Git/AE7785/lab_final`,
+  branch `final` (off main, one branch per lab, pushed to origin; first commit 2026-11-23).
+  To publish: run it, review `git status`, commit + push there.
 
 ## Next actions
 1. User checks `runs/2026-11-23_real/graph_explore.png` against the real signs (plot:
