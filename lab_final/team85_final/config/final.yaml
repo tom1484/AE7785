@@ -1,0 +1,54 @@
+# Parameters for the final's nodes (launch/final.launch.py).
+# Nav2 parameters are in nav2_params.yaml. Write floats with a decimal point.
+
+sign_detector:
+  ros__parameters:
+    image_topic: /image_raw/compressed  # sensor_msgs/CompressedImage (robot camera)
+    # In sim the Gazebo camera may publish raw sensor_msgs/Image; set compressed: false.
+    compressed: true
+    model: models/signs.onnx      # relative = to the package share dir
+    class_names: [left, right, do_not_enter, stop, goal]  # model output order
+    imgsz: 416                    # must match the exported model (models/README.md)
+    conf_threshold: 0.5
+    nms_threshold: 0.45
+    hfov: 1.085                   # fallback only: bearings use camera_info (robot: K/D calibrated, 65 deg)
+    camera_info_topic: /camera_info
+    max_rate: 10.0                # Hz cap on inference
+    publish_debug_image: true     # /sign_detections/image (+/compressed) with boxes drawn; RViz "SignDetections" panel
+
+mission:
+  ros__parameters:
+    planner: grid                 # grid | graph | explore (planning/registry.py)
+    # yaml mapping of planner kwargs. SignGraph: min_confidence (passive sightings below
+    # it are dropped), passive_weight, min_score, margin. explore: steps, seed.
+    planner_params: "{min_confidence: 0.7}"
+    graph_dump: ""                # write the planner's graph here (yaml) at the end
+    maze_file: config/maze.yaml   # relative = to the package share dir; sim: config/maze_sim.yaml
+    frame_id: map
+    base_frame: base_link
+    # Inspect: read the wall in front while stationary.
+    inspect_frames: 5             # detections to collect
+    inspect_timeout: 3.0          # s; nothing seen by then = EMPTY
+    inspect_min_area: 0.02        # bbox area / image area; ignore far-away signs
+    inspect_settle: 0.3           # s after stopping before frames count
+    # A sign counts as "in front" if its camera ray hits the inspected wall face (raycast).
+    inspect_center_tol: 0.35      # fallback only, without TF: |bearing| (rad)
+    # Passive sightings (graph planners): camera ray at the detection's bearing -> first wall
+    # of the known maze; LIDAR must agree. Camera offset = lens position in base_link (m).
+    camera_offset_x: 0.025        # robot: estimated by eye 2026-11-20 (no ruler); re-measure
+    camera_offset_y: 0.0          # (sim's camera is at 0.069 - set in final.launch.py)
+    passive_max_range: 2.5        # m camera -> wall; far stop/goal get confused
+    passive_max_lateral: 0.3      # x cell: ray must hit within this of the face center
+    passive_edge_px: 3            # drop boxes cut off by the image's left/right edge
+    lidar_tolerance: 0.25         # m
+    nav_retries: 1
+    # Align after each Nav2 arrival: wait until still, then turn in place to the heading.
+    align_tol: 0.035              # rad (2 deg)
+    align_max_turn: 0.4           # rad/s
+    align_min_turn: 0.08          # rad/s
+    align_still: 0.01             # rad per 0.1 s step = stopped
+    align_timeout: 12.0           # s; 180 deg at 0.4 rad/s ~ 8 s (in-place turns Nav2 skipped)
+    # Goal signal on the robot's buzzer (without it the run is graded as stopped: -10%).
+    goal_sound: 1                 # turtlebot3 Sound value; recovery plays 3 (start) and 1 (done)
+    goal_beeps: 3
+    beep_gap: 2.5                 # s; each sound lasts ~2 s and a new one cuts it off

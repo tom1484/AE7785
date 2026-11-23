@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>team85_final_recovery</name>
+  <version>0.0.0</version>
+  <description>AE7785 final: Nav2 recovery (beep + divert to a free maze cell), adapted from the Lab 5 instructor package turtlebot3_recovery_lab</description>
+  <maintainer email="tomchen2003611@gmail.com">tom1484</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <build_depend>rosidl_default_generators</build_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclpy</depend>
+  <depend>nav2_behavior_tree</depend>
+  <depend>geometry_msgs</depend>
+  <depend>turtlebot3_msgs</depend>
+
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <!-- Used by recovery_server.py -->
+  <exec_depend>action_msgs</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
