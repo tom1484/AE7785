@@ -19,6 +19,9 @@ Usage:
 import math
 import os
 import sys
+import tempfile
+
+import yaml
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -33,6 +36,7 @@ from launch.event_handlers import OnProcessStart
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.descriptions import ParameterFile
 
 FINAL = get_package_share_directory("team85_final")
 BRINGUP = os.path.join(get_package_share_directory("nav2_bringup"), "launch", "bringup_launch.py")
@@ -48,6 +52,12 @@ def generate_launch_description():
         DeclareLaunchArgument("nav2_params_file", default_value="",
                               description="Nav2 params (default: config/nav2_params.yaml, "
                                           "or nav2_params_fast.yaml with fast:=true)"),
+        DeclareLaunchArgument("onboard", default_value="false",
+                              description="Nav2 on the robot's Pi: only the servers we use + lower rates"),
+        DeclareLaunchArgument("nav2_rates", default_value="",
+                              description="low = ONBOARD_OVERRIDES (default with onboard), base = params file as is"),
+        DeclareLaunchArgument("composition", default_value="false",
+                              description="Nav2 bringup with all servers in one container"),
         DeclareLaunchArgument("fast", default_value="false",
                               description="Faster Nav2 profile (config/nav2_params_fast.yaml)"),
         DeclareLaunchArgument("candidates_file", default_value="",
@@ -71,6 +81,84 @@ def generate_launch_description():
     ])
 
 
+# onboard:=true (Nav2 on the robot's Raspberry Pi 4). The bringup alone keeps ~1 of its 4
+# cores busy (ld08_driver alone ~50-95%). Rates are halved where they only cost CPU; the
+# mission ALIGNs after Nav2, so a looser yaw tolerance is fine (10 Hz control overshoots
+# 0.05 rad). Timing margins (transform_tolerance, server timeouts) stay as in the base file:
+# cut load instead. Composition (one container) was tried: Nav2 configured but the starved
+# container's TF lagged and the planner never activated (CLAUDE.md, onboard experiment).
+ONBOARD_OVERRIDES = {
+    ("controller_server", "controller_frequency"): 10.0,
+    ("controller_server", "general_goal_checker", "yaw_goal_tolerance"): 0.15,
+    ("local_costmap", "local_costmap", "update_frequency"): 3.0,
+    ("local_costmap", "local_costmap", "publish_frequency"): 1.0,
+    ("global_costmap", "global_costmap", "publish_frequency"): 0.5,
+    ("bt_navigator", "bt_loop_duration"): 20,
+    ("planner_server", "expected_planner_frequency"): 5.0,
+}
+
+
+def onboard_params(path: str) -> str:
+    """Copy of a Nav2 params file with ONBOARD_OVERRIDES applied (keys must exist)."""
+    with open(path) as f:
+        params = yaml.safe_load(f)
+    for keys, value in ONBOARD_OVERRIDES.items():
+        node, rest = params[keys[0]], list(keys[1:])
+        while "ros__parameters" not in node:     # costmaps: local_costmap: local_costmap: ...
+            node = node[rest.pop(0)]
+        node = node["ros__parameters"]
+        for k in rest[:-1]:
+            node = node[k]
+        if keys[-1] not in node:
+            raise KeyError(f"onboard override {'.'.join(keys)}: not in {path}")
+        node[keys[-1]] = value
+    out = tempfile.NamedTemporaryFile("w", prefix="nav2_onboard_", suffix=".yaml", delete=False)
+    yaml.safe_dump(params, out)
+    out.close()
+    return out.name
+
+
+def lean_nav2(map_yaml: str, params: str, sim: bool):
+    """onboard: only the Nav2 servers our behavior tree uses, one lifecycle manager.
+
+    nav2_bringup also starts smoother_server and waypoint_follower (unused here) and a
+    second lifecycle manager; on the robot's Pi they cost ~60% of a core doing nothing.
+    The BT (team85_final_recovery navigate_w_recovery_divert.xml) needs the planner,
+    controller, behavior server (Wait) and bt_navigator; remaps as in navigation_launch.py
+    (controller -> cmd_vel_nav -> velocity_smoother -> cmd_vel).
+    """
+    # allow_substs: the BT path in the params is "$(find-pkg-share ...)" (as nav2_bringup does)
+    common = [ParameterFile(params, allow_substs=True), {"use_sim_time": sim}]
+    nodes = [
+        Node(package="nav2_map_server", executable="map_server", name="map_server",
+             output="screen", parameters=common + [{"yaml_filename": map_yaml}]),
+        Node(package="nav2_amcl", executable="amcl", name="amcl", output="screen",
+             parameters=common),
+        Node(package="nav2_controller", executable="controller_server", output="screen",
+             parameters=common, remappings=[("cmd_vel", "cmd_vel_nav")]),
+        Node(package="nav2_planner", executable="planner_server", name="planner_server",
+             output="screen", parameters=common),
+        Node(package="nav2_behaviors", executable="behavior_server", name="behavior_server",
+             output="screen", parameters=common),
+        Node(package="nav2_bt_navigator", executable="bt_navigator", name="bt_navigator",
+             output="screen", parameters=common),
+        Node(package="nav2_velocity_smoother", executable="velocity_smoother",
+             name="velocity_smoother", output="screen", parameters=common,
+             remappings=[("cmd_vel", "cmd_vel_nav"), ("cmd_vel_smoothed", "cmd_vel")]),
+    ]
+    names = [
+        "map_server", "amcl", "controller_server", "planner_server", "behavior_server",
+        "bt_navigator", "velocity_smoother"]
+    # Started 10 s after the servers: on the Pi they take seconds to come up, and a manager
+    # whose get_state call fails ("async_send_request failed") aborts the whole bringup,
+    # leaving later servers (velocity_smoother) inactive - the robot then never moves.
+    nodes.append(TimerAction(period=10.0, actions=[Node(
+        package="nav2_lifecycle_manager", executable="lifecycle_manager",
+        name="lifecycle_manager_navigation", output="screen",
+        parameters=[{"use_sim_time": sim, "autostart": True, "node_names": names}])]))
+    return nodes
+
+
 def launch_setup(context):
     def arg(name):
         return LaunchConfiguration(name).perform(context)
@@ -82,15 +170,20 @@ def launch_setup(context):
     sim = flag("sim")
     map_yaml = arg("map") or os.path.join(FINAL, "maps", "map_sim.yaml" if sim else "map.yaml")
 
-    nav = [IncludeLaunchDescription(
+    onboard = flag("onboard")
+    nav2_params = arg("nav2_params_file") or os.path.join(
+        FINAL, "config", "nav2_params_fast.yaml" if flag("fast") else "nav2_params.yaml")
+    if (arg("nav2_rates") or ("low" if onboard else "base")) == "low":
+        nav2_params = onboard_params(nav2_params)
+    composition = flag("composition")
+    nav = lean_nav2(map_yaml, nav2_params, sim) if onboard and not composition else [IncludeLaunchDescription(
         PythonLaunchDescriptionSource(BRINGUP),
         launch_arguments={
             "map": map_yaml,
-            "params_file": arg("nav2_params_file") or os.path.join(
-                FINAL, "config", "nav2_params_fast.yaml" if flag("fast") else "nav2_params.yaml"),
+            "params_file": nav2_params,
             "use_sim_time": str(sim),
             "autostart": "true",
-            "use_composition": "False",
+            "use_composition": str(composition),
         }.items(),
     )]
     # Sim: the robot spawns at the center of the maze's `spawn` cell. Not (0, 0, 0): map_sim's

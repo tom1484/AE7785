@@ -32,6 +32,14 @@ def generate_launch_description():
                               description='Override planner_params, e.g. "{steps: 20, seed: 3}"'),
         DeclareLaunchArgument("graph_dump", default_value="",
                               description="Write the planner's graph (yaml) here at the end"),
+        DeclareLaunchArgument("onboard", default_value="false",
+                              description="Running on the robot's Pi: detector 2 Hz / 2 threads; Nav2 composed + lower rates"),
+        DeclareLaunchArgument("detector_rate", default_value="",
+                              description="Override sign_detector max_rate (Hz)"),
+        DeclareLaunchArgument("detector_model", default_value="",
+                              description="Override sign_detector model (path; relative = package share)"),
+        DeclareLaunchArgument("detector_imgsz", default_value="",
+                              description="Override sign_detector imgsz (must match the model)"),
         DeclareLaunchArgument("final_params_file",  # not "params_file": gzserver and nav2 bringup use that name and launch configs are global
                               default_value=os.path.join(FINAL, "config", "final.yaml")),
         IncludeLaunchDescription(
@@ -65,6 +73,18 @@ def launch_setup(context):
                                   "camera_info_topic": "/simulated_camera/camera_info",
                                   "publish_debug_image": True}]
                                 if sim else [])
+    model = LaunchConfiguration("detector_model").perform(context)
+    imgsz = LaunchConfiguration("detector_imgsz").perform(context)
+    if model:
+        detector_params.append({"model": model})
+    if imgsz:
+        detector_params.append({"imgsz": int(imgsz)})
+    if LaunchConfiguration("onboard").perform(context).lower() in ("true", "1", "yes"):
+        # Pi 4: one 416 inference takes ~0.4 s; uncapped, OpenCV's threads starve Nav2.
+        detector_params.append({"max_rate": 2.0, "threads": 2})
+    rate = LaunchConfiguration("detector_rate").perform(context)
+    if rate:
+        detector_params.append({"max_rate": float(rate)})
     nodes = [
         # `python` prefix: a #!/usr/bin/env shebang drops DYLD_LIBRARY_PATH on macOS (SIP),
         # and the workspace message types then fail to load.

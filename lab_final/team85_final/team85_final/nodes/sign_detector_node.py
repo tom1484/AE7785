@@ -43,8 +43,11 @@ class SignDetectorNode(Node):
             ('camera_info_topic', '/camera_info'),
             ('max_rate', 10.0),
             ('publish_debug_image', False),
+            ('threads', 0),               # OpenCV threads for inference (0 = OpenCV default = all cores)
         ])
         v = {x.name: x.value for x in p}
+        if v['threads'] > 0:
+            cv2.setNumThreads(int(v['threads']))   # leave cores for Nav2 on the robot's Pi
         self.hfov = v['hfov']
         self.min_period = 1.0 / v['max_rate'] if v['max_rate'] > 0 else 0.0
         self.debug = v['publish_debug_image']

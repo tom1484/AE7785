@@ -203,6 +203,62 @@ Core modules are **rclpy-free** and unit-tested; nodes are thin wrappers.
 3. (optional) Sim start-pose option to watch shortcuts/recovery fire in Gazebo; sim
    fine-tune of the detector. Submission zip `LastName1_LastName2_Final.zip` at the end.
 
+## Onboard experiment (2026-11-23): full pipeline on the robot's Pi 4 - WORKS (run 9)
+- Robot setup done: `~/final_ws` (src: our 3 packages + nav2_bringup from source with
+  `find_package(navigation2)` removed), minimal Nav2 via apt (13 server pkgs, 161 MB), pip
+  `--user` opencv-python-headless 4.10 (system cv2 4.5.4 can't load YOLO11 ONNX), apt cache
+  cleaned + journal vacuumed to 200M (2.6 GB free). `ssh turtlebot`, bringup in tmux 0.
+- Run: `~/final_ws/src/team85_final/scripts/onboard.sh planner:=graph start:=0,5,N` (sources
+  the Tailscale DDS profile - without it big msgs like /map never reach the laptop; adds
+  rviz:=false onboard:=true). Laptop view: `scripts/launch/view.zsh [--light]`.
+  `onboard:=true`: Nav2 composed (one container) + ONBOARD_OVERRIDES in navigation.launch.py
+  (controller 10 Hz, local costmap 3 Hz, yaw tol 0.15...), detector 2 Hz / 2 threads.
+  `detector_model:=` / `detector_imgsz:=` launch args override the model.
+- Result: never drove. Bringup alone keeps ~45% CPU busy (ld08_driver ~95% of a core).
+  Separate Nav2 processes: lifecycle timeouts. Composed: Nav2 configures, but the planner
+  never activates - AMCL drops every scan (arrive ~2 s late) so `map` frame never exists.
+  Killing the detector let Nav2 activate in seconds. Python nodes are costly over the
+  UDP-only profile: detector 47% (receives every camera frame), idle set_initial_pose 24%,
+  mission 22%; laptop RViz costs the robot's tailscaled up to 90% (costmaps/images).
+  Detector on the Pi (2 threads): 416 354 ms, 320 229 ms, 256 150 ms per frame.
+- Run 5 (no laptop RViz, set_initial_pose now drops its subscriptions when done): load only
+  ~4, but turtlebot3_node crashed 2 s after launch ("no status packet" -> "stack smashing
+  detected", as in run 12 earlier) -> no odom TF; inconclusive. Needs a bringup restart.
+- Runs 6-7: composition starves one container (TF lag, planner never activates); separate
+  processes (run 7) drove but goals aborted: planner ack > 200 ms, controller TF 0.2-0.5 s
+  stale vs 0.2 s tolerance. Loosening those was rejected (user): cut load instead.
+  Load breakdown (run 7): bringup ~90% of a core, needed Nav2 ~105%, unused Nav2
+  (smoother_server, waypoint_follower) + 2 lifecycle managers ~63%, detector ~45%, a Python
+  TF listener ~6-14% each (empty node ~1%: DDS discovery is not the cost).
+- **Run 9 = first onboard success**: `onboard:=true` now launches a lean Nav2 node list
+  (`lean_nav2` in navigation.launch.py: map_server, amcl, controller, planner,
+  behavior_server, bt_navigator, velocity_smoother, ONE lifecycle manager; params via
+  ParameterFile(allow_substs) for the BT's $(find-pkg-share)), base timing margins,
+  set_initial_pose unregisters its TF listener when done, detector all-data 256 model
+  (`~/final_ws/signs_256_all.onnx`, 2 Hz, 2 threads), no laptop RViz. Graph planner from
+  (0,5)E: goal in 143 s, 10 inspections all right at 1.00, 0 stalls / goal failures / ack
+  timeouts, 3 missed control loops, load ~13 (run 7: 21). Robot left at the goal (2,0)W.
+- Rate sweep (robot-side `~/final_ws/sweep.sh`, launch args `detector_rate:=`, `nav2_rates:=low|base`,
+  `onboard.sh --nav` for repositioning): detector 4 Hz + low Nav2 rates already saturates
+  (CPU idle 0.8%, load up to 19.7, 8 missed loops, 1 follow_path ack timeout -> recovery);
+  then the lifecycle manager missed map_server's 4 s bond heartbeat -> "CRITICAL FAILURE"
+  -> reset ALL Nav2 servers mid-goal; the mission never got a response for its in-flight
+  goal and hung (TIMEOUT). Onboard ceiling = run 9 settings (detector 2 Hz, low rates).
+  Mission bug exposed: no timeout on a Nav2 goal that never answers (laptop too).
+- Mission Nav2 watchdog (fixes that hang, laptop too): `nav_ack_timeout` 10 s / `nav_timeout`
+  120 s -> cancel + nav_failed(); after a rejection/timeout the mission re-checks that
+  bt_navigator is active before sending (survives a Nav2 reset).
+- Lean launch race: the lifecycle manager started with the servers; a failed get_state
+  ("async_send_request failed") aborted bringup and left velocity_smoother inactive (robot
+  never moves, "Failed to make progress"). The manager now starts 10 s after the servers.
+- **Onboard sighting-only** (`planner_params:={inspect: false}`, run 9 settings) from (1,4)N:
+  goal in 57 s, 6 one-wall retargets on the sign route, confirming read GOAL 1.00, 0 stalls /
+  timeouts, 4 missed loops, load ~16. Robot left at the goal (2,0)W.
+- Still heavy: detector ~60%, mission ~28%, recovery_server ~26%, lifecycle manager ~22%.
+- Next ideas: lower camera fps at the
+  source; SHM transport for robot-local traffic (bringup profile change + restart).
+  Demo plan stays: compute on the laptop (user's decision); onboard = proof it runs headless.
+
 ## Commands
 ```zsh
 conda activate humble; cd ~/Workspace/turtlebot3_ws

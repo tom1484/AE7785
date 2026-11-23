@@ -74,9 +74,11 @@ class InitialPoseSetter(Node):
         self.publisher = self.create_publisher(PoseWithCovarianceStamped, '/initialpose', 10)
         self.ready_pub = self.create_publisher(Bool, '/localization_ready', LATCHED)
         self.cmd_vel = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.create_subscription(PoseWithCovarianceStamped, '/amcl_pose', self.on_amcl, LATCHED)
-        self.create_subscription(LaserScan, '/scan', self.on_scan, qos_profile_sensor_data)
-        self.create_subscription(Odometry, '/odom', self.on_odom, 10)
+        self.inputs = [
+            self.create_subscription(PoseWithCovarianceStamped, '/amcl_pose', self.on_amcl, LATCHED),
+            self.create_subscription(LaserScan, '/scan', self.on_scan, qos_profile_sensor_data),
+            self.create_subscription(Odometry, '/odom', self.on_odom, 10),
+        ]
 
         self.scans: list[np.ndarray] = []
         self.amcl = None
@@ -87,7 +89,7 @@ class InitialPoseSetter(Node):
         self.state_since = self.now()
         self.last_publish = 0.0
         self.done = False
-        self.create_timer(0.1, self.step)
+        self.timer = self.create_timer(0.1, self.step)
         self.get_logger().info(
             f'placed at ({self.pose[0]:.2f}, {self.pose[1]:.2f}), yaw '
             f'{math.degrees(self.pose[2]):.0f} deg; '
@@ -214,6 +216,13 @@ class InitialPoseSetter(Node):
         self.ready_pub.publish(Bool(data=True))
         self.get_logger().info('localization ready')
         self.done = True
+        # Idle from here on (only the latched publisher matters): drop the inputs, or every
+        # /scan and /odom message keeps costing CPU (~25% of a core on the robot's Pi).
+        for sub in self.inputs:
+            self.destroy_subscription(sub)
+        self.destroy_timer(self.timer)
+        self.inputs = []
+        self.tf_listener.unregister()             # its /tf decoding in Python was ~14% more
 
     def publish(self):
         msg = PoseWithCovarianceStamped()

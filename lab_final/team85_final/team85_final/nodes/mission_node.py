@@ -81,6 +81,10 @@ class MissionNode(Node):
             ('passive_edge_px', 3),       # drop boxes this close to the image's left/right edge
             ('lidar_tolerance', 0.25),    # m; LIDAR must see the wall where the ray hits it
             ('nav_retries', 1),
+            # Watchdog: a goal Nav2 never answers (e.g. lifecycle manager reset all servers
+            # after a missed bond heartbeat) would otherwise hang the mission forever.
+            ('nav_ack_timeout', 10.0),  # s for Nav2 to accept/reject a goal
+            ('nav_timeout', 120.0),     # s for an accepted goal's result (longest leg + recovery)
             ('align_tol', 0.035),     # rad (2 deg): final heading error before reading signs
             ('align_max_turn', 0.4),  # rad/s
             ('align_min_turn', 0.08), # rad/s; below this the burger doesn't move
@@ -123,6 +127,8 @@ class MissionNode(Node):
         self.nav_target = None
         self.nav_attempts = 0
         self.nav_seq = 0                  # id of the current Nav2 goal; older results ignored
+        self.nav_sent = 0.0               # when the current goal was sent (s)
+        self.nav_accepted = False
         self.aligned = False              # squared up to the current face (ALIGN done)
         self.sound = self.create_client(Sound, '/sound')
         self.beeps_left = 0
@@ -287,6 +293,8 @@ class MissionNode(Node):
             self.step_align()
             return
         if self.state == 'NAVIGATE':
+            if self.nav_watchdog():
+                return
             # Retarget gate is distance-based: re-check while driving, not only when a
             # sighting changes the graph (the next sign is often known long before).
             self.maybe_retarget()
@@ -325,6 +333,11 @@ class MissionNode(Node):
             self.step_inspect()
             return
 
+        if not self.navigator_active():
+            # After a rejected / unanswered goal: Nav2 may be restarting its servers.
+            self.get_logger().info('waiting for Nav2 bt_navigator to be active',
+                                   throttle_duration_sec=5.0)
+            return
         action = self.planner.next_action(cell_pose)
         # Graph planners explain their non-obvious decisions (re-reads, recovery, lost).
         self.flush_planner_log()
@@ -460,6 +473,9 @@ class MissionNode(Node):
         self.state = 'NAVIGATE'
         self.nav_seq += 1
         seq = self.nav_seq
+        self.nav_sent = self.get_clock().now().nanoseconds * 1e-9
+        self.nav_accepted = False
+        self.nav_goal_handle = None
         self.nav.send_goal_async(goal).add_done_callback(
             lambda f, seq=seq: self.on_goal_response(f, seq))
 
@@ -469,20 +485,18 @@ class MissionNode(Node):
             return                     # replaced (retarget) before Nav2 answered
         if not handle.accepted:
             self.get_logger().warn('Nav2 rejected the goal')
+            self.bt_active = False         # re-check Nav2's state before the next goal
             self.state = 'PLAN'
             return
+        self.nav_accepted, self.nav_goal_handle = True, handle
         handle.get_result_async().add_done_callback(lambda f, seq=seq: self.on_nav_result(f, seq))
 
     def on_nav_result(self, future, seq):
         if seq != self.nav_seq:
             return                     # a goal we replaced: Nav2 reports it aborted/canceled
         status = future.result().status
-        if status != GoalStatus.STATUS_SUCCEEDED and self.nav_attempts <= self.cfg['nav_retries']:
-            self.get_logger().warn(f'Nav2 status {status}, retrying {self.nav_target}')
-            self.send_nav(self.nav_target)
-            return
         if status != GoalStatus.STATUS_SUCCEEDED:
-            self.state = 'PLAN'          # out of retries: re-plan from wherever we are
+            self.nav_failed(f'Nav2 status {status}')
             return
         if not getattr(self.planner, 'inspect', True):
             # Sighting-only: no reading here, so no squaring up - straight to the next goal.
@@ -496,6 +510,31 @@ class MissionNode(Node):
             self.state = 'PLAN'
             return
         self.start_align()
+
+    def nav_failed(self, why: str):
+        """Current goal failed: retry it (if Nav2 is up and retries are left) or re-plan."""
+        if self.nav_attempts <= self.cfg['nav_retries'] and self.navigator_active():
+            self.get_logger().warn(f'{why}, retrying {self.nav_target}')
+            self.send_nav(self.nav_target)
+        else:
+            self.get_logger().warn(f'{why}, re-planning')
+            self.state = 'PLAN'          # waits for an active navigator, then plans from here
+
+    def nav_watchdog(self) -> bool:
+        """Give up on a goal Nav2 never acknowledges or never finishes. True if it did."""
+        waited = self.get_clock().now().nanoseconds * 1e-9 - self.nav_sent
+        if not self.nav_accepted and waited > self.cfg['nav_ack_timeout']:
+            why = f'no answer from Nav2 for {waited:.0f} s'
+        elif self.nav_accepted and waited > self.cfg['nav_timeout']:
+            why = f'Nav2 goal still running after {waited:.0f} s'
+            if self.nav_goal_handle is not None:
+                self.nav_goal_handle.cancel_goal_async()
+        else:
+            return False
+        self.nav_seq += 1                # late answers to the abandoned goal are ignored
+        self.bt_active = False           # Nav2 may be restarting: re-check before resending
+        self.nav_failed(why)
+        return True
 
     def start_align(self):
         """Square up to self.nav_target's heading (ALIGN) before the next decision."""
