@@ -166,7 +166,8 @@ lifecycle node for its state, **without blocking**:
 ```python
 def navigator_active(self):
     if self.bt_active:
-        return True                                   # once active, stop asking
+        return True                                   # active: stop asking (reset to False
+                                                      # after a rejected/unanswered goal, §7)
     f = self.bt_state_future
     if f is not None and f.done():                    # an earlier request has answered
         self.bt_active = f.result().current_state.id == State.PRIMARY_STATE_ACTIVE
@@ -465,7 +466,10 @@ def on_goal_response(self, future, seq):
     handle = future.result()
     if seq != self.nav_seq: return          # already replaced by a retarget
     if not handle.accepted:
-        warn 'Nav2 rejected the goal'; self.state = 'PLAN'; return
+        warn 'Nav2 rejected the goal'
+        self.bt_active = False              # Nav2 may be restarting: re-check before the next goal
+        self.state = 'PLAN'; return
+    self.nav_accepted, self.nav_goal_handle = True, handle
     handle.get_result_async().add_done_callback(lambda f, seq=seq: self.on_nav_result(f, seq))
 ```
 
@@ -475,14 +479,20 @@ def on_goal_response(self, future, seq):
 def on_nav_result(self, future, seq):
     if seq != self.nav_seq: return          # old goal; Nav2 says aborted because we replaced it
     status = future.result().status
-    if status != SUCCEEDED and self.nav_attempts <= self.cfg['nav_retries']:
-        warn 'retrying'; self.send_nav(self.nav_target); return    # one retry (nav_retries = 1)
     if status != SUCCEEDED:
-        self.state = 'PLAN'; return         # give up on this goal; replan from where we are
+        self.nav_failed(f'Nav2 status {status}'); return
     if not getattr(self.planner, 'inspect', True):
         log 'arrived ... (no align)'
         self.state = 'PLAN'; return         # sighting-only: no reading, no squaring up
     self.start_align()                      # normal: square up, then PLAN
+```
+
+```python
+def nav_failed(self, why):
+    if self.nav_attempts <= self.cfg['nav_retries'] and self.navigator_active():
+        warn f'{why}, retrying ...'; self.send_nav(self.nav_target)   # one retry (nav_retries = 1)
+    else:
+        warn f'{why}, re-planning'; self.state = 'PLAN'
 ```
 
 After a failure with no retries left, the node does not stop. It goes to PLAN, where the
@@ -490,6 +500,32 @@ current cell pose is read again and the planner decides from there.
 
 `nav_attempts` starts at 0 and `send_nav` increments it, so the first goal makes it 1. On a
 failure, `1 <= nav_retries (1)` allows one retry (attempt 2). A second failure goes to PLAN.
+
+### A goal Nav2 never answers (`nav_watchdog`)
+
+Both replies above are callbacks: if Nav2 never sends one, nothing happens and the mission
+waits forever. That happened on the robot (2026-11-23, onboard): under CPU load the map
+server missed its 4 s bond heartbeat, the lifecycle manager reset **every** Nav2 server
+mid-goal, and the goal in flight never got a reply. So `step()` checks, while in NAVIGATE:
+
+```python
+def nav_watchdog(self):
+    waited = now - self.nav_sent                      # send_nav stamps nav_sent, clears nav_accepted
+    if not self.nav_accepted and waited > self.cfg['nav_ack_timeout']:    # 10 s
+        why = 'no answer from Nav2 ...'
+    elif self.nav_accepted and waited > self.cfg['nav_timeout']:          # 120 s
+        why = 'Nav2 goal still running ...'; self.nav_goal_handle.cancel_goal_async()
+    else:
+        return False
+    self.nav_seq += 1          # a late reply to the abandoned goal is ignored
+    self.bt_active = False     # re-ask bt_navigator's state before sending again
+    self.nav_failed(why)
+    return True
+```
+
+`nav_timeout` is generous (longest leg plus a recovery); it only has to end a hang. And PLAN
+does not send a goal until `navigator_active()` is true again, so after a reset the mission
+waits ("waiting for Nav2 bt_navigator to be active") instead of firing goals Nav2 rejects.
 
 ---
 

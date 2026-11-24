@@ -154,7 +154,7 @@ Core modules are **rclpy-free** and unit-tested; nodes are thin wrappers.
 - Launch arg named `final_params_file`, not `params_file` (gzserver and Nav2 bringup use that
   name and launch configs are global).
 
-## Current state (2026-11-20)
+## Current state (2026-11-23)
 - Sim: everything works end to end in Gazebo (laptop and mini) - grid and graph planners reach
   the goal reading every wall 5/5; graph building from passive sightings 36/36 correct;
   Cartographer maps. Gates green (unit tests `src/team85_final/test`).
@@ -181,8 +181,7 @@ Core modules are **rclpy-free** and unit-tested; nodes are thin wrappers.
   (GOAL 1.00), no recovery. First retarget skipped the (2,5)N DNE bounce (shortcut, r < n).
 - Real maze mapped (2026-11-20): `maps/map.*` clean, `config/maze.yaml` fitted from it (8
   interior walls, cell 0.925 m, every edge scored 1.00/0.00). Graph beats grid on this layout
-  too (Monte Carlo 500, nominal 0.996 vs 0.979, harsh 0.983 vs 0.930). Final code not yet
-  run on the robot.
+  too (Monte Carlo 500, nominal 0.996 vs 0.979, harsh 0.983 vs 0.930).
 - Graph planner write-up done (`src/team85_final/docs/graph_planner.md`, numbers re-run
   2026-11-20 on current code). `final.yaml` defaults to `planner: grid`; graph is chosen at launch.
 - `src/cartographer_ros` carries 5 local patches (uncommitted in its upstream clone, by
@@ -191,30 +190,41 @@ Core modules are **rclpy-free** and unit-tested; nodes are thin wrappers.
   branch `final` (off main, one branch per lab, pushed to origin; first commit 2026-11-23).
   To publish: run it, review `git status`, commit + push there.
 
-## Next actions
-1. User checks `runs/2026-11-23_real/graph_explore.png` against the real signs (plot:
-   `python -m team85_final.nodes.plot_graph --map maps/map.yaml --maze config/maze.yaml
-   --graph ... --out ...`). If it is right, passive sightings pass the demo planner gate.
-   Laptop load (detector + Nav2 + RViz) caused one Nav2 stall: measure CPU if it recurs.
-2. Then `final.zsh planner:=graph start:=0,0,E graph_dump:=...`. Demo planner gate: if passive
-   sightings on the real robot are as good as in sim, demo with graph; else `planner:=grid`
-   (graph < grid without passive). Camera mount angle: estimate from inspection logs if
-   bearings show a constant bias. camera_offset_x 0.025 is an eyeball estimate.
-3. (optional) Sim start-pose option to watch shortcuts/recovery fire in Gazebo; sim
-   fine-tune of the detector. Submission zip `LastName1_LastName2_Final.zip` at the end.
+## Next actions (as of 2026-11-23 evening)
+Done: passive-sighting gate passed (graph_explore.png checked by the user), graph and
+sighting-only modes on the real robot from 5 starts, fast profile, rolling shortcuts, mission
+Nav2 watchdog, onboard proof. Everything committed + pushed (`final` branch), incl. this handoff and docs/mission_node.md §7
+(Nav2 watchdog). The user considers the final lab essentially complete (2026-11-23).
+**Demo plan (user's decision): run on the laptop** with the committed settings, e.g.
+`final.zsh planner:=graph start:=r,c,h fast:=true` (+ `planner_params:="{inspect: false}"` for
+sighting-only). Delivered model stays 416.
+Open / offered, not decided by the user:
+1. Make `fast:=true` the launch default for the demo (now opt-in).
+2. Retarget gate at U-turn signs: the 1-cell gate can turn the robot ~1 cell early.
+3. Goal arrival is ~14 deg off in sighting-only (no align) -> 2-5 s ALIGN before the read.
+4. Merge `final` into main (not done; user's call). Vision repo (lab_final_vision) is
+   committed locally (ea020d4) but has no remote.
+5. Camera mount angle from inspection logs (optional); submission zip
+   `LastName1_LastName2_Final.zip` at the end.
+Robot state at handoff: at (0,5)N, bringup running, nothing else.
 
 ## Onboard experiment (2026-11-23): full pipeline on the robot's Pi 4 - WORKS (run 9)
 - Robot setup done: `~/final_ws` (src: our 3 packages + nav2_bringup from source with
   `find_package(navigation2)` removed), minimal Nav2 via apt (13 server pkgs, 161 MB), pip
   `--user` opencv-python-headless 4.10 (system cv2 4.5.4 can't load YOLO11 ONNX), apt cache
   cleaned + journal vacuumed to 200M (2.6 GB free). `ssh turtlebot`, bringup in tmux 0.
-- Run: `~/final_ws/src/team85_final/scripts/onboard.sh planner:=graph start:=0,5,N` (sources
-  the Tailscale DDS profile - without it big msgs like /map never reach the laptop; adds
-  rviz:=false onboard:=true). Laptop view: `scripts/launch/view.zsh [--light]`.
-  `onboard:=true`: Nav2 composed (one container) + ONBOARD_OVERRIDES in navigation.launch.py
-  (controller 10 Hz, local costmap 3 Hz, yaw tol 0.15...), detector 2 Hz / 2 threads.
-  `detector_model:=` / `detector_imgsz:=` launch args override the model.
-- Result: never drove. Bringup alone keeps ~45% CPU busy (ld08_driver ~95% of a core).
+- **Current recipe (works, runs 9 + sighting-only):** on the robot
+  `~/final_ws/src/team85_final/scripts/onboard.sh planner:=graph start:=0,5,N
+  detector_model:=$HOME/final_ws/signs_256_all.onnx detector_imgsz:=256` (+ `planner_params:="{inspect: false}"`
+  for sighting-only). onboard.sh sources the Tailscale DDS profile (without it big msgs like
+  /map never reach the laptop) and adds rviz:=false onboard:=true; `--nav` = Nav2 only.
+  `onboard:=true` = lean Nav2 node list (`lean_nav2`, lifecycle manager started 10 s late) +
+  ONBOARD_OVERRIDES rates (`nav2_rates:=low`; controller 10 Hz, local costmap 3 Hz, yaw tol
+  0.15; timing margins stay base) + detector 2 Hz / 2 threads. Overrides: `detector_rate:=`,
+  `detector_model:=`, `detector_imgsz:=`, `nav2_rates:=base`, `composition:=true` (bad).
+  Keep the laptop RViz closed (costs the robot's tailscaled); `scripts/launch/view.zsh --light`
+  if needed. Robot-side helpers (not in git): `~/final_ws/sweep.sh`, `~/final_ws/goto.py`.
+- History. First tries: never drove. Bringup alone keeps ~45% CPU busy (ld08_driver ~95% of a core).
   Separate Nav2 processes: lifecycle timeouts. Composed: Nav2 configures, but the planner
   never activates - AMCL drops every scan (arrive ~2 s late) so `map` frame never exists.
   Killing the detector let Nav2 activate in seconds. Python nodes are costly over the
