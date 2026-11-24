@@ -1,0 +1,24 @@
+# The Gazebo maze (sim/7785_maze_signs.world) as a grid, in the frame of maps/map_sim.yaml.
+# Fitted 2026-11-20 with team85_final.maze.extract (fit_grid + extract_walls) from map_sim,
+# recorded by scripts drive_cells + Cartographer. Fit: cell 0.9123 x 0.9249 m.
+# Checked against ground truth from the Gazebo mesh (sim/gazebo_truth.py): walls identical,
+# cell size 0.9186 vs 0.9163 m.
+# NOTE: map_sim's origin is NOT the spawn pose (Cartographer put the start at about
+# (-0.37, -0.03)). The robot spawns at the center of `spawn` (cell, heading), and
+# navigation.launch.py sets AMCL's sim initial pose from it.
+rows: 3
+cols: 6
+cell_size: 0.9186
+origin: [-0.8388, -0.485]
+yaw: 0.0
+walls:
+- [0, 1, E]
+- [0, 1, N]
+- [0, 3, N]
+- [1, 0, E]
+- [1, 1, E]
+- [1, 2, E]
+- [1, 4, E]
+- [1, 4, N]
+- [2, 3, E]
+spawn: [0, 0, E]

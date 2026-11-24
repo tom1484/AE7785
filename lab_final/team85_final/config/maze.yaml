@@ -1,0 +1,26 @@
+# The real final maze as a grid (team85_final.maze.grid.MazeGrid), in maps/map.yaml's frame.
+# Fitted 2026-11-20 by `extract_maze --map maps/map.yaml --maze config/maze.yaml --fit`
+# (fit_grid + extract_walls): aspect error 0.2%, every edge scored 1.00 or 0.00, drawing
+# checked against the map image. Re-run the same command (+ --write) after remapping.
+#   +---+---+---+---+---+---+
+#   |       |               |      row 2 (north / +y)
+#   +   +   +---+   +---+   +
+#   |           |       |   |      row 1
+#   +   +---+   +   +   +   +
+#   |       |       |       |      row 0
+#   +---+---+---+---+---+---+
+#    col 0 ................ col 5  (+x)
+rows: 3
+cols: 6
+cell_size: 0.9247
+origin: [-0.5539, -2.1071]
+yaw: 0.0
+walls:
+- [0, 1, E]
+- [0, 1, N]
+- [0, 3, E]
+- [1, 2, E]
+- [1, 2, N]
+- [1, 4, E]
+- [1, 4, N]
+- [2, 1, E]
