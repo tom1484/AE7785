@@ -1,0 +1,25 @@
+# Environment
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Data: images come from ../lab_6/data/raw (and new robot captures, archived as zips)
+data/raw/
+data/yolo/
+*.zip
+!data/archives/*.zip
+
+# Generated outputs
+outputs/runs/
+outputs/models/
+outputs/reports/
+outputs/review/
+outputs/logs/
+
+# Ultralytics downloads pretrained weights to the cwd by default
+yolov8*.pt
+yolo11*.pt
+yoloe-*.pt
+mobileclip*.ts
+outputs/weights/
