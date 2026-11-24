@@ -202,8 +202,8 @@ Open / offered, not decided by the user:
 1. Make `fast:=true` the launch default for the demo (now opt-in).
 2. Retarget gate at U-turn signs: the 1-cell gate can turn the robot ~1 cell early.
 3. Goal arrival is ~14 deg off in sighting-only (no align) -> 2-5 s ALIGN before the read.
-4. Merge `final` into main (not done; user's call). Vision repo (lab_final_vision) is
-   committed locally (ea020d4) but has no remote.
+4. `final` merged into main (e930f65, 2026-11-23, merge commit as for lab-6). Vision repo
+   (lab_final_vision) is committed locally (ea020d4) but has no remote.
 5. Camera mount angle from inspection logs (optional); submission zip
    `LastName1_LastName2_Final.zip` at the end.
 Robot state at handoff: at (0,5)N, bringup running, nothing else.
