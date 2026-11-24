@@ -305,6 +305,8 @@ python -I src/team85_final/sim/sign_truth.py --compare /tmp/graph.yaml  # graph_
   `run12_sight_roll_motorfail.*`, died to a turtlebot3_node crash, not the planner.)
   Multi-start sighting-only fast runs (`runs/2026-11-23_real/starts/`, scratchpad
   `chain_starts.sh`): s1 from (2,3)W 73 s, 0 stalls, 12 one-wall retargets, GOAL 1.00.
+  Run 13 (same as run 12, after the mission watchdog change, `speed/run13_sight_fast_laptop.*`):
+  67 s again, 0 stalls / missed loops, 10 one-wall retargets, GOAL 1.00.
   s2 (2,2)S 73 s, s3 (2,5)E 57 s, s4 (0,4)S 49 s; all 0 stalls, every retarget one wall on
   the sign route, GOAL 1.00 each; drives between starts all succeeded. Robot left at (0,5)N.
   Only blemish: arrival at the goal (2,0)W is ~14 deg off (no align) -> mission aligns 2-5 s
